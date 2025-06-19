@@ -1,6 +1,6 @@
 {
   "name": "@astrot1988/otlp",
-  "version": "1.0",
+  "version": "1.0.0",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -14,11 +14,32 @@
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
+    "test": "tsx src/__tests__/all.test.ts",
+    "test:decorators": "tsx src/__tests__/decorators-manual.test.ts",
+    "test:integration": "tsx src/__tests__/integration.test.ts",
+    "test:all": "npm test && npm run test:decorators && npm run test:integration",
     "prepublishOnly": "npm run build"
   },
   "type": "module",
+  "dependencies": {
+    "@opentelemetry/api": "^1.8.0",
+    "@opentelemetry/sdk-trace-web": "^1.22.0",
+    "@opentelemetry/auto-instrumentations-web": "^0.37.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.49.1",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.49.1",
+    "@opentelemetry/resources": "^1.22.0",
+    "@opentelemetry/semantic-conventions": "^1.22.0",
+    "@opentelemetry/instrumentation": "^0.49.1",
+    "@opentelemetry/instrumentation-fetch": "^0.49.1",
+    "@opentelemetry/instrumentation-xml-http-request": "^0.49.1",
+    "@opentelemetry/instrumentation-user-interaction": "^0.47.0",
+    "@opentelemetry/instrumentation-document-load": "^0.47.0"
+  },
   "devDependencies": {
+    "@swc/core": "^1.3.0",
+    "@types/node": "^20.0.0",
     "tsup": "^8.5.0",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "tsx": "^4.0.0"
   }
 }
