@@ -15,4 +15,5 @@ jobs:
       - run: jq ".version += \".${{ github.run_number }}\"" package.json > t && mv t package.json
       - run: npm run build
       - run: npm publish
-        env: { NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }} }
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
