@@ -9,6 +9,9 @@
     "import": "./dist/index.mjs",
     "require": "./dist/index.cjs"
   },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
     "prepublishOnly": "npm run build"
