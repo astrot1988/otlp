@@ -1,6 +1,6 @@
 // Основные экспорты
-export {ConfigManager, otlpConfig, type OTLPConfig} from './config.js';
-export {OTLPLazy} from './lazy/otlp-lazy.js';
+export { ConfigManager, otlpConfig, type OTLPConfig } from './config';
+export { OTLPLazy } from './lazy/otlp-lazy';
 export {OTLPCore, getOTLPCore} from './core/otlp-core.js';
 
 // Функция-обертка для трейсинга (альтернатива декораторам)
