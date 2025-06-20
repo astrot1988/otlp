@@ -1,99 +1,192 @@
 import { initializeOTLP, withTrace } from '../index.js';
+import { ConfigManager } from '../config.js';
 
-async function testIntegration() {
-  console.log('🧪 Testing Real OTLP Integration...');
+// Простой тест-фреймворк
+class TestRunner {
+  private tests: Array<{ name: string; fn: () => Promise<void> }> = [];
+  private passed = 0;
+  private failed = 0;
 
-  // Test 1: Инициализация без endpoint (только консольный вывод)
-  console.log('Testing initialization without endpoint...');
+  test(name: string, fn: () => Promise<void>) {
+    this.tests.push({ name, fn });
+  }
 
-  try {
-    const otlp = await initializeOTLP({
-      enabled: true,
-      serviceName: 'integration-test',
-      serviceVersion: '1.0.0',
-      debug: true,
-      enableAutoInstrumentation: false
-    });
+  async run() {
+    console.log(`\n🧪 Running ${this.tests.length} integration tests...\n`);
 
-    console.log('✅ OTLP initialized successfully');
-
-    // Test 2: Использование withTrace
-    console.log('Testing withTrace function...');
-
-    const result = await withTrace('test-operation', async () => {
-      await new Promise(resolve => setTimeout(resolve, 50));
-      return { success: true, data: 'test-data' };
-    }, {
-      attributes: {
-        'test.attribute': 'test-value',
-        'test.number': 42
-      },
-      includeResult: true
-    });
-
-    if (result.success && result.data === 'test-data') {
-      console.log('✅ withTrace function test passed');
-    } else {
-      console.log('❌ withTrace function test failed');
-    }
-
-    // Test 3: Обработка ошибок
-    console.log('Testing error handling...');
-
-    try {
-      await withTrace('error-operation', async () => {
-        throw new Error('Test error');
-      });
-      console.log('❌ Error handling test failed - should have thrown');
-    } catch (error) {
-      if (error instanceof Error && error.message === 'Test error') {
-        console.log('✅ Error handling test passed');
-      } else {
-        console.log('❌ Error handling test failed - wrong error');
+    for (const test of this.tests) {
+      try {
+        await test.fn();
+        console.log(`✅ ${test.name}`);
+        this.passed++;
+      } catch (error: any) {
+        console.log(`❌ ${test.name}`);
+        console.log(`   Error: ${error.message}`);
+        this.failed++;
       }
     }
 
-    // Test 4: Вложенные операции
-    console.log('Testing nested operations...');
+    console.log(`\n📊 Integration Results: ${this.passed} passed, ${this.failed} failed\n`);
 
-    const nestedResult = await withTrace('parent-operation', async () => {
-      const childResult = await withTrace('child-operation', async () => {
-        return 'child-result';
-      });
-
-      return `parent-${childResult}`;
-    });
-
-    if (nestedResult === 'parent-child-result') {
-      console.log('✅ Nested operations test passed');
-    } else {
-      console.log('❌ Nested operations test failed');
+    if (this.failed > 0) {
+      process.exit(1);
     }
-
-  } catch (error) {
-    console.log('✅ Integration test passed (graceful failure):', error instanceof Error ? error.message : 'Unknown error');
   }
+}
 
-  // Test 5: Отключенная телеметрия
-  console.log('Testing with disabled telemetry...');
+const runner = new TestRunner();
 
-  const disabledOtlp = await initializeOTLP({
-    enabled: false,
-    serviceName: 'disabled-test'
+// Интеграционные тесты
+runner.test('Full initialization and tracing workflow', async () => {
+  const { configManager, withTrace: wt } = await initializeOTLP({
+    enabled: true,
+    serviceName: 'integration-test',
+    serviceVersion: '1.0.0',
+    debug: true
   });
 
-  const disabledResult = await withTrace('disabled-operation', async () => {
+  const config = configManager.getConfig();
+  if (config.serviceName !== 'integration-test') {
+    throw new Error('Service not configured correctly');
+  }
+
+  // Тест трейсинга
+  const result = await wt('integration-span', async () => {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    return 'integration-result';
+  });
+
+  if (result !== 'integration-result') {
+    throw new Error('Tracing workflow failed');
+  }
+});
+
+runner.test('Multiple spans workflow', async () => {
+  await initializeOTLP({
+    enabled: true,
+    serviceName: 'multi-span-test',
+    debug: true
+  });
+
+  const results = [];
+
+  // Первый спан
+  const result1 = await withTrace('span-1', async () => {
+    await new Promise(resolve => setTimeout(resolve, 5));
+    return 'result-1';
+  });
+  results.push(result1);
+
+  // Второй спан
+  const result2 = await withTrace('span-2', async () => {
+    await new Promise(resolve => setTimeout(resolve, 5));
+    return 'result-2';
+  });
+  results.push(result2);
+
+  if (results.length !== 2 || results[0] !== 'result-1' || results[1] !== 'result-2') {
+    throw new Error('Multiple spans workflow failed');
+  }
+});
+
+runner.test('Error handling in tracing workflow', async () => {
+  await initializeOTLP({
+    enabled: true,
+    serviceName: 'error-test',
+    debug: true
+  });
+
+  let errorCaught = false;
+
+  try {
+    await withTrace('error-span', async () => {
+      throw new Error('Integration test error');
+    });
+  } catch (error: any) {
+    errorCaught = true;
+    if (error.message !== 'Integration test error') {
+      throw new Error('Wrong error propagated');
+    }
+  }
+
+  if (!errorCaught) {
+    throw new Error('Error should have been caught');
+  }
+});
+
+runner.test('Disabled tracing integration', async () => {
+  await initializeOTLP({
+    enabled: false,
+    serviceName: 'disabled-test',
+    debug: true
+  });
+
+  let functionExecuted = false;
+
+  const result = await withTrace('disabled-span', async () => {
+    functionExecuted = true;
     return 'disabled-result';
   });
 
-  if (disabledResult === 'disabled-result') {
-    console.log('✅ Disabled telemetry test passed');
-  } else {
-    console.log('❌ Disabled telemetry test failed');
+  if (!functionExecuted || result !== 'disabled-result') {
+    throw new Error('Function should execute even when tracing is disabled');
   }
+});
 
-  console.log('🎉 All Integration tests completed!\n');
-}
+runner.test('Configuration persistence', async () => {
+  const configManager1 = ConfigManager.getInstance();
+  configManager1.setConfig({
+    enabled: true,
+    serviceName: 'persistence-test',
+    serviceVersion: '2.0.0'
+  });
 
-// Запуск теста
-testIntegration().catch(console.error);
+  const configManager2 = ConfigManager.getInstance();
+  const currentConfig = configManager2.getConfig();
+
+  if (currentConfig.serviceName !== 'persistence-test' || currentConfig.serviceVersion !== '2.0.0') {
+    throw new Error('Configuration not persisted correctly');
+  }
+});
+
+runner.test('Environment variables integration', async () => {
+  // Сохраняем текущие значения
+  const originalEnabled = process.env.OTLP_ENABLED;
+  const originalServiceName = process.env.OTLP_SERVICE_NAME;
+
+  try {
+    // Устанавливаем переменные окружения
+    process.env.OTLP_ENABLED = 'true';
+    process.env.OTLP_SERVICE_NAME = 'env-integration-test';
+
+    await initializeOTLP({
+      enabled: process.env.OTLP_ENABLED === 'true',
+      serviceName: process.env.OTLP_SERVICE_NAME,
+      debug: true
+    });
+
+    const configManager = ConfigManager.getInstance();
+    const config = configManager.getConfig();
+
+    if (!config.enabled || config.serviceName !== 'env-integration-test') {
+      throw new Error('Environment variables not integrated correctly');
+    }
+
+  } finally {
+    // Восстанавливаем переменные окружения
+    if (originalEnabled !== undefined) {
+      process.env.OTLP_ENABLED = originalEnabled;
+    } else {
+      delete process.env.OTLP_ENABLED;
+    }
+
+    if (originalServiceName !== undefined) {
+      process.env.OTLP_SERVICE_NAME = originalServiceName;
+    } else {
+      delete process.env.OTLP_SERVICE_NAME;
+    }
+  }
+});
+
+// Запуск тестов
+runner.run().catch(console.error);

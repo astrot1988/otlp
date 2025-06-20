@@ -20,8 +20,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
     "test": "tsx src/__tests__/all.test.ts",
-    "test:decorators": "tsx src/__tests__/decorators-manual.test.ts",
-    "test:integration": "tsx src/__tests__/integration.test.ts",
+    "test:decorators": "tsx src/__tests__/lazy-decorators.test.ts",    "test:integration": "tsx src/__tests__/integration.test.ts",
     "test:all": "npm test && npm run test:decorators && npm run test:integration",
     "prepublishOnly": "npm run build"
   },
