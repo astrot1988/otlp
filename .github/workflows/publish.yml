@@ -1,19 +1,53 @@
 name: Publish Package
 
-on: { push: { branches: ['main'] } }
+on:
+  push:
+    branches:
+      - main
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-      - run: npm install
-      - run: jq ".version += \".${{ github.run_number }}\"" package.json > t && mv t package.json
-      - run: npm run build
-      - run: npm publish
+          registry-url: 'https://registry.npmjs.org' 
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Fetch latest version from NPM
+        id: get_version
+        run: |
+          # Получаем текущую версию с NPM
+          LATEST_VERSION=$(npm view @astrot1988/otlp version)
+          echo "LATEST_VERSION=$LATEST_VERSION"
+          echo "npm_package_version=$LATEST_VERSION" > .env
+
+          # Сохраняем для следующих шагов
+          echo "version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Bump patch version
+        run: |
+          OLD_VERSION=$(echo ${{ steps.get_version.outputs.version }})
+          echo "Current version: $OLD_VERSION"
+
+          # Увеличиваем patch-часть версии
+          NEW_VERSION=$(node -p "v='${OLD_VERSION}'; p = v.split('.'); p[2] = parseInt(p[2], 10)+1; p.join('.')")
+
+          echo "New version: $NEW_VERSION"
+
+          # Обновляем package.json
+          jq --arg new_version "$NEW_VERSION" '.version = $new_version' package.json > tmp.json && mv tmp.json package.json
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to NPM
+        run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
