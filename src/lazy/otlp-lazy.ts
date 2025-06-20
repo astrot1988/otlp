@@ -6,8 +6,13 @@ export class OTLPLazy {
   private currentSpan: any = null;
   private tracer: any = null;
 
-  constructor() {
+  constructor(config?: Partial<OTLPConfig>) {
     this.configManager = ConfigManager.getInstance();
+
+    // ✅ Поддержка частичной конфигурации в конструкторе
+    if (config) {
+      this.configManager.setConfig(config);
+    }
   }
 
   configure(config: Partial<OTLPConfig>): void {
@@ -41,10 +46,16 @@ export class OTLPLazy {
   public async startSpan(name: string, options?: {
     attributes?: Record<string, any>;
     kind?: any;
+    isError?: boolean;
   }): Promise<void> {
-    const config = ConfigManager.getInstance();
+    const config = this.configManager.getConfig();
 
-    if (!config.getConfig().enabled) {
+    if (!config.enabled) {
+      return;
+    }
+
+    // ✅ Проверяем traceOnErrorOnly
+    if (config.traceOnErrorOnly && !options?.isError) {
       return;
     }
 
@@ -70,8 +81,8 @@ export class OTLPLazy {
       this.currentSpan.addEvent(name, attributes);
     } else {
       // Fallback для тестов и отладки
-      const config = ConfigManager.getInstance();
-      if (config.getConfig().debug) {
+      const config = this.configManager.getConfig();
+      if (config.debug) {
         console.log(`Event: ${name}`, attributes);
       }
     }
@@ -90,9 +101,9 @@ export class OTLPLazy {
     const spanName = `${target.constructor.name}.${propertyKey}`;
 
     descriptor.value = async function (...args: any[]) {
-      const config = ConfigManager.getInstance();
+      const config = ConfigManager.getInstance().getConfig();
 
-      if (!config.getConfig().enabled) {
+      if (!config.enabled) {
         return originalMethod.apply(this, args);
       }
 
@@ -105,6 +116,8 @@ export class OTLPLazy {
         return result;
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        // ✅ При ошибке помечаем как error span
+        await otlpLazy.startSpan(spanName, { isError: true });
         await otlpLazy.endSpan(false, errorMessage);
         throw error;
       }
@@ -137,9 +150,11 @@ export class OTLPLazy {
       this.initialized = true;
 
       if (config.debug) {
-        console.log('OTLP initialized successfully', {
+        console.log('OTLP Lazy initialized successfully', {
           serviceName: config.serviceName,
-          endpoint: config.endpoint
+          endpoint: config.endpoint,
+          traceOnErrorOnly: config.traceOnErrorOnly,
+          enableAutoInstrumentation: config.enableAutoInstrumentation
         });
       }
     } catch (error) {

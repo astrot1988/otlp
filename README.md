@@ -17,283 +17,9 @@
 npm install @astrot1988/otlp
 ```
 
-## 🚀 Быстрый старт
+## 🔧 Конфигурация
 
-### Базовое использование
-
-```typescript
-import { initializeOTLP, withTrace } from '@astrot1988/otlp';
-
-// Инициализация (вызывается один раз в приложении)
-await initializeOTLP({
-  enabled: true,
-  serviceName: 'my-web-app',
-  serviceVersion: '1.0.0',
-  endpoint: 'http://localhost:4318/v1/traces',
-  debug: true
-});
-
-// Использование трейсинга
-const result = await withTrace('user-operation', async () => {
-  const userData = await fetchUserData();
-  return userData;
-}, {
-  attributes: {
-    'user.id': '123',
-    'operation.type': 'fetch'
-  }
-});
-```
-
-### React интеграция
-
-```typescript
-import React, { useEffect } from 'react';
-import { initializeOTLP, withTrace } from '@astrot1988/otlp';
-
-function App() {
-  useEffect(() => {
-    initializeOTLP({
-      enabled: process.env.NODE_ENV === 'production',
-      serviceName: 'react-app',
-      endpoint: process.env.REACT_APP_OTLP_ENDPOINT,
-      enableAutoInstrumentation: true
-    });
-  }, []);
-
-  const handleUserAction = async () => {
-    await withTrace('user-button-click', async () => {
-      const response = await fetch('/api/data');
-      return response.json();
-    }, {
-      attributes: {
-        'ui.component': 'main-button'
-      }
-    });
-  };
-
-  return <button onClick={handleUserAction}>Click me</button>;
-}
-```
-
-### React с ленивой инициализацией
-
-```typescript
-import React, { useState, useCallback } from 'react';
-import { OTLPLazy } from '@astrot1988/otlp';
-
-function UserDashboard() {
-  const [tracer, setTracer] = useState<OTLPLazy | null>(null);
-  const [userData, setUserData] = useState(null);
-
-  // Ленивая инициализация трейсера
-  const getTracer = useCallback(() => {
-    if (!tracer && process.env.NODE_ENV === 'production') {
-      const newTracer = new OTLPLazy();
-      setTracer(newTracer);
-      return newTracer;
-    }
-    return tracer;
-  }, [tracer]);
-
-  const fetchUserData = async (userId: string) => {
-    const currentTracer = getTracer();
-    
-    if (currentTracer) {
-      await currentTracer.startSpan('react.fetch-user-data', {
-        attributes: {
-          'component': 'UserDashboard',
-          'user.id': userId,
-          'operation': 'fetch'
-        }
-      });
-    }
-
-    try {
-      const response = await fetch(`/api/users/${userId}`);
-      const data = await response.json();
-      
-      if (currentTracer) {
-        await currentTracer.addEvent('data.fetched', {
-          'data.size': JSON.stringify(data).length,
-          'response.status': response.status
-        });
-        await currentTracer.endSpan(true);
-      }
-
-      setUserData(data);
-      return data;
-    } catch (error) {
-      if (currentTracer) {
-        await currentTracer.addEvent('fetch.error', {
-          'error.message': error.message
-        });
-        await currentTracer.endSpan(false, error.message);
-      }
-      throw error;
-    }
-  };
-
-  const handleUserAction = async (action: string) => {
-    const currentTracer = getTracer();
-    
-    if (currentTracer) {
-      await currentTracer.startSpan(`react.user-action.${action}`, {
-        attributes: {
-          'ui.action': action,
-          'component': 'UserDashboard'
-        }
-      });
-
-      try {
-        // Выполнение действия
-        await performUserAction(action);
-        await currentTracer.endSpan(true);
-      } catch (error) {
-        await currentTracer.endSpan(false, error.message);
-        throw error;
-      }
-    } else {
-      // Выполнение без трейсинга
-      await performUserAction(action);
-    }
-  };
-
-  return (
-    <div>
-      <button onClick={() => fetchUserData('123')}>
-        Load User Data
-      </button>
-      <button onClick={() => handleUserAction('update-profile')}>
-        Update Profile
-      </button>
-      {userData && <div>{JSON.stringify(userData)}</div>}
-    </div>
-  );
-}
-```
-
-### React Hook для ленивого трейсинга
-
-```typescript
-import { useState, useCallback, useRef } from 'react';
-import { OTLPLazy } from '@astrot1988/otlp';
-
-function useLazyTracing(componentName: string) {
-  const tracerRef = useRef<OTLPLazy | null>(null);
-  const [isTracingEnabled, setIsTracingEnabled] = useState(
-    process.env.NODE_ENV === 'production'
-  );
-
-  const getTracer = useCallback(() => {
-    if (!tracerRef.current && isTracingEnabled) {
-      tracerRef.current = new OTLPLazy();
-    }
-    return tracerRef.current;
-  }, [isTracingEnabled]);
-
-  const traceOperation = useCallback(async (
-    operationName: string,
-    operation: () => Promise<any>,
-    attributes: Record<string, any> = {}
-  ) => {
-    const tracer = getTracer();
-    
-    if (tracer) {
-      await tracer.startSpan(`${componentName}.${operationName}`, {
-        attributes: {
-          'component': componentName,
-          ...attributes
-        }
-      });
-
-      try {
-        const result = await operation();
-        await tracer.endSpan(true);
-        return result;
-      } catch (error) {
-        await tracer.endSpan(false, error.message);
-        throw error;
-      }
-    } else {
-      return await operation();
-    }
-  }, [componentName, getTracer]);
-
-  const toggleTracing = useCallback((enabled: boolean) => {
-    setIsTracingEnabled(enabled);
-    if (!enabled) {
-      tracerRef.current = null;
-    }
-  }, []);
-
-  return {
-    traceOperation,
-    toggleTracing,
-    isTracingEnabled
-  };
-}
-
-// Использование хука
-function ProductList() {
-  const { traceOperation, toggleTracing, isTracingEnabled } = useLazyTracing('ProductList');
-  const [products, setProducts] = useState([]);
-
-  const loadProducts = async () => {
-    const data = await traceOperation('load-products', async () => {
-      const response = await fetch('/api/products');
-      return response.json();
-    }, {
-      'operation.type': 'data-fetch'
-    });
-
-    setProducts(data);
-  };
-
-  const addToCart = async (productId: string) => {
-    await traceOperation('add-to-cart', async () => {
-      const response = await fetch('/api/cart/add', {
-        method: 'POST',
-        body: JSON.stringify({ productId })
-      });
-      return response.json();
-    }, {
-      'product.id': productId,
-      'operation.type': 'user-action'
-    });
-  };
-
-  return (
-    <div>
-      <div>
-        <label>
-          <input
-            type="checkbox"
-            checked={isTracingEnabled}
-            onChange={(e) => toggleTracing(e.target.checked)}
-          />
-          Enable Tracing
-        </label>
-      </div>
-      
-      <button onClick={loadProducts}>Load Products</button>
-      
-      {products.map(product => (
-        <div key={product.id}>
-          <span>{product.name}</span>
-          <button onClick={() => addToCart(product.id)}>
-            Add to Cart
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-```
-
-## 📚 API
-
-### `initializeOTLP(config)`
+### Базовая конфигурация
 
 ```typescript
 interface OTLPConfig {
@@ -304,759 +30,591 @@ interface OTLPConfig {
   debug?: boolean;                    // Отладочные логи
   enableAutoInstrumentation?: boolean; // Авто-трейсинг fetch, XHR, кликов
   headers?: Record<string, string>;   // Заголовки для экспорта
+  traceOnErrorOnly?: boolean;         // Трейсинг только при ошибках
 }
 ```
-
-### `withTrace(spanName, fn, options?)`
-
-```typescript
-// Простой трейсинг
-const user = await withTrace('get-user', async () => {
-  return await database.users.findById(userId);
-});
-
-// С атрибутами
-const products = await withTrace('search-products', async () => {
-  return await searchProducts(query);
-}, {
-  attributes: {
-    'search.query': query,
-    'user.id': currentUserId
-  }
-});
-
-// Включить результат в трейс
-const result = await withTrace('api-call', async () => {
-  return await fetch('/api/data').then(r => r.json());
-}, {
-  includeResult: true,
-  attributes: {
-    'api.endpoint': '/api/data'
-  }
-});
-```
-
-## 🎯 Декораторы
-
-### Базовые декораторы
-
-```typescript
-import { traceMethod } from '@astrot1988/otlp';
-
-class UserService {
-  @traceMethod('user.get-profile')
-  async getUserProfile(userId: string) {
-    return await this.database.users.findById(userId);
-  }
-
-  @traceMethod('user.update-profile', {
-    attributes: {
-      'operation.type': 'update'
-    }
-  })
-  async updateUserProfile(userId: string, data: any) {
-    return await this.database.users.update(userId, data);
-  }
-
-  @traceMethod('user.delete', {
-    includeResult: false, // Не включать результат в трейс
-    attributes: {
-      'operation.critical': true
-    }
-  })
-  async deleteUser(userId: string) {
-    await this.database.users.delete(userId);
-    return { deleted: true };
-  }
-}
-```
-
-### Продвинутые декораторы
-
-```typescript
-import { traceClass, traceMethod, conditionalTrace } from '@astrot1988/otlp';
-
-@traceClass('payment-service') // Трейсинг всех методов класса
-class PaymentService {
-  @traceMethod('payment.process')
-  async processPayment(amount: number, cardData: any) {
-    return await this.chargeCard(amount, cardData);
-  }
-
-  @conditionalTrace('payment.refund', {
-    condition: (amount) => amount > 100, // Трейсинг только для сумм > 100
-    attributes: {
-      'operation.type': 'refund'
-    }
-  })
-  async refundPayment(amount: number, paymentId: string) {
-    return await this.processRefund(amount, paymentId);
-  }
-
-  @traceMethod('payment.validate', {
-    timeout: 5000, // Таймаут операции
-    onError: (error, context) => {
-      // Кастомная обработка ошибок
-      console.error('Payment validation failed:', error);
-    }
-  })
-  async validatePayment(paymentData: any) {
-    return await this.validate(paymentData);
-  }
-}
-```
-
-## 🔄 Ленивая загрузка
-
-Библиотека поддерживает ленивую загрузку OpenTelemetry - трейсинг инициализируется только при первом использовании.
-
-### Базовый пример ленивой загрузки
-
-```typescript
-import { OTLPLazy } from '@astrot1988/otlp';
-
-// Создание экземпляра не инициализирует OpenTelemetry
-const tracer = new OTLPLazy();
-
-// OpenTelemetry инициализируется только при первом вызове
-await tracer.startSpan('lazy-operation', {
-  attributes: {
-    'operation.type': 'lazy-loaded'
-  }
-});
-
-// Добавление атрибутов и событий
-await tracer.addAttribute('step', 'processing');
-await tracer.addEvent('processing.started', {
-  'timestamp': Date.now()
-});
-
-// Выполнение работы
-await performSomeWork();
-
-await tracer.addEvent('processing.completed');
-await tracer.endSpan(true);
-```
-
-### Условная ленивая загрузка
-
-```typescript
-class DataService {
-  private tracer: OTLPLazy | null = null;
-
-  private getTracer() {
-    if (!this.tracer && this.shouldEnableTracing()) {
-      this.tracer = new OTLPLazy();
-    }
-    return this.tracer;
-  }
-
-  private shouldEnableTracing() {
-    return process.env.NODE_ENV === 'production' || 
-           process.env.ENABLE_TRACING === 'true';
-  }
-
-  async processData(data: any[]) {
-    const tracer = this.getTracer();
-    
-    if (tracer) {
-      await tracer.startSpan('data.process-batch', {
-        attributes: {
-          'batch.size': data.length,
-          'data.type': 'user-data'
-        }
-      });
-    }
-
-    try {
-      const results = [];
-      
-      for (const item of data) {
-        if (tracer) {
-          await tracer.addEvent('item.processing', {
-            'item.id': item.id
-          });
-        }
-
-        const result = await this.processItem(item);
-        results.push(result);
-      }
-
-      if (tracer) {
-        await tracer.addAttribute('results.count', results.length);
-        await tracer.endSpan(true);
-      }
-
-      return results;
-    } catch (error) {
-      if (tracer) {
-        await tracer.endSpan(false, error.message);
-      }
-      throw error;
-    }
-  }
-}
-```
-
-### Ленивая загрузка с декораторами
-
-```typescript
-import { OTLPLazy } from '@astrot1988/otlp';
-
-// Кастомный декоратор с ленивой загрузкой
-function lazyTrace(spanName: string, options: any = {}) {
-  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-    const originalMethod = descriptor.value;
-    
-    descriptor.value = async function (...args: any[]) {
-      // Ленивая инициализация трейсера
-      if (!this._lazyTracer && this.shouldTrace?.() !== false) {
-        this._lazyTracer = new OTLPLazy();
-      }
-
-      if (this._lazyTracer) {
-        await this._lazyTracer.startSpan(spanName, {
-          attributes: options.attributes || {}
-        });
-
-        try {
-          const result = await originalMethod.apply(this, args);
-          await this._lazyTracer.endSpan(true);
-          return result;
-        } catch (error) {
-          await this._lazyTracer.endSpan(false, error.message);
-          throw error;
-        }
-      } else {
-        return await originalMethod.apply(this, args);
-      }
-    };
-
-    return descriptor;
-  };
-}
-
-class PaymentService {
-  @lazyTrace('payment.process', {
-    attributes: {
-      'service': 'payment',
-      'operation': 'process'
-    }
-  })
-  async processPayment(amount: number) {
-    // Трейсинг инициализируется только при первом вызове
-    return await this.chargeCard(amount);
-  }
-
-  shouldTrace() {
-    return process.env.NODE_ENV === 'production';
-  }
-}
-```
-
-## 🎯 Примеры использования
-
-### E-commerce приложение
-
-```typescript
-class ShoppingCart {
-  @traceMethod('cart.add-item')
-  async addItem(productId: string, quantity: number) {
-    // Валидация продукта
-    const product = await withTrace('product.validate', async () => {
-      const response = await fetch(`/api/products/${productId}`);
-      if (!response.ok) throw new Error('Product not found');
-      return response.json();
-    });
-
-    // Проверка наличия
-    await withTrace('inventory.check', async () => {
-      if (product.stock < quantity) {
-        throw new Error('Insufficient stock');
-      }
-    }, {
-      attributes: {
-        'product.id': productId,
-        'product.stock': product.stock,
-        'requested.quantity': quantity
-      }
-    });
-
-    // Добавление в корзину
-    return withTrace('cart.update', async () => {
-      const response = await fetch('/api/cart/items', {
-        method: 'POST',
-        body: JSON.stringify({ productId, quantity })
-      });
-      return response.json();
-    });
-  }
-
-  @traceMethod('cart.checkout', {
-    attributes: {
-      'operation.critical': true
-    }
-  })
-  async checkout() {
-    // Валидация корзины
-    await withTrace('cart.validate', async () => {
-      const items = await this.getItems();
-      if (items.length === 0) {
-        throw new Error('Cart is empty');
-      }
-    });
-
-    // Обработка платежа
-    const payment = await withTrace('payment.process', async () => {
-      return await this.processPayment();
-    });
-
-    // Создание заказа
-    return withTrace('order.create', async () => {
-      return await this.createOrder(payment.id);
-    });
-  }
-}
-```
-
-### Сервис аутентификации
-
-```typescript
-@traceClass('auth-service')
-class AuthService {
-  @traceMethod('auth.login')
-  async login(email: string, password: string) {
-    // Валидация входных данных
-    await withTrace('auth.validate-input', async () => {
-      if (!email || !password) {
-        throw new Error('Email and password required');
-      }
-    });
-
-    // Поиск пользователя
-    const user = await withTrace('auth.find-user', async () => {
-      const response = await fetch('/api/auth/user', {
-        method: 'POST',
-        body: JSON.stringify({ email })
-      });
-      if (!response.ok) throw new Error('User not found');
-      return response.json();
-    });
-
-    // Проверка пароля
-    await withTrace('auth.verify-password', async () => {
-      const response = await fetch('/api/auth/verify', {
-        method: 'POST',
-        body: JSON.stringify({ email, password })
-      });
-      if (!response.ok) throw new Error('Invalid credentials');
-    });
-
-    // Генерация токена
-    const token = await withTrace('auth.generate-token', async () => {
-      const response = await fetch('/api/auth/token', {
-        method: 'POST',
-        body: JSON.stringify({ userId: user.id })
-      });
-      return response.json();
-    });
-
-    return { user, token };
-  }
-
-  @conditionalTrace('auth.refresh-token', {
-    condition: (token) => this.isTokenExpiringSoon(token),
-    attributes: {
-      'auth.operation': 'refresh'
-    }
-  })
-  async refreshToken(token: string) {
-    return await this.generateNewToken(token);
-  }
-}
-```
-
-### Ручное управление трейсами
-
-```typescript
-import { OTLPLazy } from '@astrot1988/otlp';
-
-class ComplexOperation {
-  async executeComplexWorkflow() {
-    const tracer = new OTLPLazy();
-    const startTime = Date.now();
-
-    // Начало основного спана
-    await tracer.startSpan('complex-workflow', {
-      attributes: {
-        'workflow.version': '1.0',
-        'workflow.type': 'complex'
-      }
-    });
-
-    try {
-      // Шаг 1
-      await tracer.addAttribute('current.step', 'validation');
-      await tracer.addEvent('step.started', { step: 'validation' });
-      
-      const validationResult = await this.validateInput();
-      
-      await tracer.addEvent('step.completed', { 
-        step: 'validation',
-        result: 'success' 
-      });
-
-      // Шаг 2
-      await tracer.addAttribute('current.step', 'processing');
-      await tracer.addEvent('step.started', { step: 'processing' });
-      
-      const processingResult = await this.processData();
-      
-      await tracer.addAttribute('processing.items_count', processingResult.length);
-      await tracer.addEvent('step.completed', { 
-        step: 'processing',
-        items_processed: processingResult.length 
-      });
-
-      // Шаг 3
-      await tracer.addAttribute('current.step', 'finalization');
-      await tracer.addEvent('step.started', { step: 'finalization' });
-      
-      const finalResult = await this.finalizeResults(processingResult);
-      
-      await tracer.addEvent('workflow.completed', {
-        total_duration_ms: Date.now() - startTime,
-        final_result_size: finalResult.length
-      });
-
-      // Успешное завершение
-      await tracer.endSpan(true, 'Workflow completed successfully');
-      
-      return finalResult;
-
-    } catch (error) {
-      // Добавление информации об ошибке
-      await tracer.addEvent('workflow.error', {
-        error_type: error.constructor.name,
-        error_message: error.message,
-        current_step: await tracer.getAttribute('current.step')
-      });
-
-      // Завершение с ошибкой
-      await tracer.endSpan(false, error.message);
-      
-      throw error;
-    }
-  }
-}
-```
-
-## 🔧 Конфигурация
 
 ### Переменные окружения
 
 ```bash
+# .env
 OTLP_ENABLED=true
 OTLP_SERVICE_NAME=my-app
 OTLP_SERVICE_VERSION=1.0.0
 OTLP_ENDPOINT=http://localhost:4318/v1/traces
 OTLP_DEBUG=false
 OTLP_AUTO_INSTRUMENTATION=true
+ENABLE_TRACING=true
+```
+
+### Глобальная конфигурация
+
+```typescript
+import { ConfigManager } from '@astrot1988/otlp';
+
+const configManager = ConfigManager.getInstance();
+
+// Установка конфигурации
+configManager.setConfig({
+  enabled: true,
+  serviceName: 'my-web-app',
+  serviceVersion: '1.0.0',
+  endpoint: 'http://localhost:4318/v1/traces',
+  debug: true,
+  headers: {
+    'Authorization': 'Bearer your-token',
+    'X-Service-Name': 'my-web-app'
+  }
+});
+
+// Получение текущей конфигурации
+const config = configManager.getConfig();
+console.log('Current config:', config);
+```
+
+## 🚀 Инициализация
+
+###  Полная инициализация
+
+```typescript
+import { initializeOTLP } from '@astrot1988/otlp';
+
+// Инициализация с полной конфигурацией
+await initializeOTLP({
+  enabled: true,
+  serviceName: 'my-web-app',
+  serviceVersion: '1.0.0',
+  endpoint: 'http://localhost:4318/v1/traces',
+  debug: true,
+  enableAutoInstrumentation: false,
+  headers: {
+    'Authorization': 'Bearer your-token',
+    'Content-Type': 'application/json'
+  }
+});
+
+console.log('✅ OTLP initialized successfully');
+```
+
+### Ленивая инициализация
+
+```typescript
+import { OTLPLazy } from '@astrot1988/otlp';
+
+// Создание экземпляра (OpenTelemetry НЕ инициализируется)
+const tracer = new OTLPLazy({
+  serviceName: 'my-web-app',
+  endpoint: 'http://localhost:4318/v1/traces',
+  debug: true
+});
+
+// OpenTelemetry инициализируется только при первом использовании
+await tracer.startSpan('lazy-operation', {
+  attributes: {
+    'operation.type': 'lazy-loaded'
+  }
+});
+
+await tracer.addAttribute('step', 'processing');
+await tracer.addEvent('processing.started');
+
+// Выполнение работы
+await performSomeWork();
+
+await tracer.endSpan(true);
+```
+
+### Способ 2: Ленивая инициализация с конфигурацией
+```typescript
+import { initializeOTLP, OTLPLazy } from '@astrot1988/otlp';
+
+// ✅ Ленивая инициализация - трейсинг только при ошибках
+await initializeOTLP({
+  enabled: true,
+  serviceName: 'my-lazy-app',
+  endpoint: 'http://localhost:4318/v1/traces',
+  traceOnErrorOnly: true,           // Только ошибки
+  enableAutoInstrumentation: true,  // Автоинструментация включена
+  debug: true
+});
+
+// Создание экземпляра с дополнительной конфигурацией
+const lazyTracer = new OTLPLazy({
+  serviceVersion: '2.0.0',
+  headers: { 'Authorization': 'Bearer token' }
+});
+
+// Обычные операции НЕ трейсятся
+await fetch('/api/users'); // ✅ Успех - без трейсинга
+
+// Ошибки трейсятся + включается автоинструментация
+try {
+  await fetch('/api/error'); // ❌ 500 -> трейсинг активируется!
+} catch (error) {
+  // Теперь все последующие запросы будут трейситься
+}
+
+
+```
+
+
+### Полная инициализация (с выборочным трейсингом ошибок)
+```typescript
+import { initializeOTLPFull, OTLPFull } from '@astrot1988/otlp';
+
+// ✅ Полная инициализация - все готово сразу, но трейсим только ошибки
+await initializeOTLPFull({
+  enabled: true,
+  serviceName: 'my-full-app',
+  endpoint: 'http://localhost:4318/v1/traces',
+  traceOnErrorOnly: true,           // Только ошибки
+  enableAutoInstrumentation: true,  // Автоинструментация сразу активна
+  debug: true
+});
+
+// Создание экземпляра с конфигурацией
+const fullTracer = new OTLPFull({
+  serviceVersion: '2.0.0',
+  headers: { 'Authorization': 'Bearer token' }
+});
+
+// Проверка готовности
+console.log('Tracer ready:', fullTracer.isReady());
+
+```
+
+
+### Универсальная инициализация с выбором режима
+```typescript
+import { initializeOTLPWithMode } from '@astrot1988/otlp';
+
+// ✅ Выбор режима в зависимости от окружения
+const telemetry = await initializeOTLPWithMode({
+  enabled: true,
+  serviceName: 'my-universal-app',
+  endpoint: 'http://localhost:4318/v1/traces',
+  traceOnErrorOnly: true,
+  enableAutoInstrumentation: true,
+  mode: process.env.NODE_ENV === 'production' ? 'lazy' : 'full'
+});
+
+console.log('Telemetry initialized:', telemetry);
+
+```
+
+
+### Динамическое переключение режимов
+```typescript
+import { ConfigManager, OTLPLazy, OTLPFull } from '@astrot1988/otlp';
+
+const config = ConfigManager.getInstance();
+
+// Начинаем с трейсинга только ошибок
+config.setConfig({
+  enabled: true,
+  serviceName: 'dynamic-app',
+  traceOnErrorOnly: true,
+  enableAutoInstrumentation: true
+});
+
+const tracer = new OTLPLazy();
+
+// В процессе работы переключаемся на полный трейсинг
+setTimeout(() => {
+  config.setConfig({
+    traceOnErrorOnly: false // Теперь трейсим все
+  });
+  
+  console.log('Switched to full tracing mode');
+}, 60000);
+
+```
+
+
+### Условная инициализация
+
+```typescript
+import { ConfigManager, initializeOTLP } from '@astrot1988/otlp';
+
+// Инициализация только в продакшене
+const shouldInitialize = process.env.NODE_ENV === 'production' || 
+                         process.env.ENABLE_TRACING === 'true';
+
+if (shouldInitialize) {
+  await initializeOTLP({
+    enabled: true,
+    serviceName: 'my-app',
+    endpoint: process.env.OTLP_ENDPOINT
+  });
+} else {
+  // Отключаем трейсинг для разработки
+  ConfigManager.getInstance().setConfig({ enabled: false });
+}
+```
+
+
+### Проверка состояния трейсинга
+```typescript
+import { ConfigManager } from '@astrot1988/otlp';
+
+function getTracingStatus() {
+  const config = ConfigManager.getInstance().getConfig();
+  
+  return {
+    enabled: config.enabled,
+    mode: config.traceOnErrorOnly ? 'error-only' : 'full',
+    autoInstrumentation: config.enableAutoInstrumentation,
+    service: config.serviceName,
+    endpoint: config.endpoint,
+    description: config.traceOnErrorOnly 
+      ? '🔥 Tracing only errors - lightweight mode'
+      : '📊 Tracing everything - full observability'
+  };
+}
+
+console.log('Current tracing status:', getTracingStatus());
+
+```
+
+## 🎯 Работа с декораторами
+
+### Базовые декораторы
+
+```typescript
+import { lazyTrace, lazyTraceOnError, type LazyTraceable } from '@astrot1988/otlp';
+
+class UserService implements LazyTraceable {
+  _lazyTracer?: any;
+  _errorTracer?: any;
+
+  // Опциональный метод для контроля трейсинга
+  shouldTrace(): boolean {
+    return process.env.NODE_ENV === 'production';
+  }
+
+  // Полный трейсинг метода
+  @lazyTrace('user.get-profile', {
+    includeResult: true,
+    attributes: {
+      'operation.type': 'read',
+      'data.source': 'database'
+    }
+  })
+  async getUserProfile(userId: string): Promise<UserProfile> {
+    const response = await fetch(`/api/users/${userId}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+    return await response.json();
+  }
+
+  // Трейсинг только при ошибках
+  @lazyTraceOnError('user.update-profile', {
+    includeArgs: true,
+    errorFilter: (error: Error) => {
+      // Трейсируем только серверные ошибки
+      return !error.message.includes('validation');
+    },
+    attributes: {
+      'operation.type': 'update',
+      'operation.critical': true
+    },
+    onError: (error: Error, context: any) => {
+      console.error('Critical user update error:', {
+        error: error.message,
+        userId: context.args[0],
+        duration: context.duration
+      });
+    }
+  })
+  async updateUserProfile(userId: string, data: Partial<UserProfile>): Promise<UserProfile> {
+    // Валидация
+    if (!data.name) {
+      throw new Error('Name validation failed');
+    }
+
+    const response = await fetch(`/api/users/${userId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.status}`);
+    }
+
+    return await response.json();
+  }
+
+  // Трейсинг с таймаутом
+  @lazyTrace('user.delete', {
+    timeout: 5000,
+    includeResult: false,
+    attributes: {
+      'operation.type': 'delete',
+      'operation.critical': true
+    }
+  })
+  async deleteUser(userId: string): Promise<void> {
+    const response = await fetch(`/api/users/${userId}`, {
+      method: 'DELETE'
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to delete user: ${response.status}`);
+    }
+  }
+}
+
+interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+}
+```
+
+### Продвинутые декораторы
+
+```typescript
+import { lazyTraceAdvanced } from '@astrot1988/otlp';
+
+class PaymentService implements LazyTraceable {
+  _lazyTracer?: any;
+  _errorTracer?: any;
+
+  shouldTrace(): boolean {
+    return true;
+  }
+
+  // Комбинированный декоратор с расширенными возможностями
+  @lazyTraceAdvanced('payment.process', {
+    includeArgs: true,
+    includeResult: true,
+    timeout: 10000,
+    errorFilter: (error: Error) => {
+      // Трейсируем все ошибки кроме валидационных
+      return !error.message.includes('validation');
+    },
+    onSuccess: (result: any, context: any) => {
+      console.log('Payment processed successfully:', {
+        paymentId: result.id,
+        amount: context.args[0],
+        duration: context.duration
+      });
+    },
+    onError: (error: Error, context: any) => {
+      console.error('Payment processing failed:', {
+        error: error.message,
+        amount: context.args[0],
+        duration: context.duration
+      });
+    },
+    attributes: {
+      'service.name': 'payment-service',
+      'operation.critical': true
+    }
+  })
+  async processPayment(amount: number, cardData: CardData): Promise<PaymentResult> {
+    // Валидация
+    if (amount <= 0) {
+      throw new Error('Amount validation failed');
+    }
+
+    // Обработка платежа
+    const response = await fetch('/api/payments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount, cardData })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Payment failed: ${response.status}`);
+    }
+
+    return await response.json();
+  }
+
+  // Трейсинг только при ошибках
+  @lazyTraceAdvanced('payment.refund', {
+    traceOnlyOnError: true,
+    includeArgs: true,
+    attributes: {
+      'operation.type': 'refund'
+    }
+  })
+  async refundPayment(paymentId: string, amount: number): Promise<RefundResult> {
+    const response = await fetch(`/api/payments/${paymentId}/refund`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ amount })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Refund failed: ${response.status}`);
+    }
+
+    return await response.json();
+  }
+}
+
+interface CardData {
+  number: string;
+  cvv: string;
+  expiry: string;
+}
+
+interface PaymentResult {
+  id: string;
+  status: string;
+  amount: number;
+}
+
+interface RefundResult {
+  id: string;
+  status: string;
+  refundAmount: number;
+}
+```
+
+## 🔄 Работа без декораторов
+
+### Функциональный подход
+
+```typescript
+import { withTrace, OTLPLazy } from '@astrot1988/otlp';
+
+class DataService {
+  // Использование withTrace функции
+  async fetchUserData(userId: string): Promise<UserData> {
+    return withTrace('data.fetch-user', async () => {
+      const response = await fetch(`/api/users/${userId}`);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      return await response.json();
+    }, {
+      attributes: {
+        'user.id': userId,
+        'operation.type': 'fetch'
+      },
+      includeResult: true
+    });
+  }
+
+  // Ручное управление трейсами
+  async processUserData(userData: UserData[]): Promise<ProcessedData[]> {
+    const tracer = new OTLPLazy({
+      serviceName: 'data-service',
+      debug: true
+    });
+
+    await tracer.startSpan('data.process-batch', {
+      attributes: {
+        'batch.size': userData.length,
+        'operation.type': 'processing'
+      }
+    });
+
+    try {
+      const results: ProcessedData[] = [];
+
+      for (const user of userData) {
+        await tracer.addEvent('user.processing', {
+          'user.id': user.id
+        });
+
+        const processed = await this.processUser(user);
+        results.push(processed);
+
+        await tracer.addAttribute(`user.${user.id}.processed`, true);
+      }
+
+      await tracer.addAttribute('results.count', results.length);
+      await tracer.addEvent('batch.completed', {
+        'processed.count': results.length
+      });
+
+      await tracer.endSpan(true);
+      return results;
+
+    } catch (error) {
+      await tracer.addAttribute('error.message', error.message);
+      await tracer.endSpan(false, error.message);
+      throw error;
+    }
+  }
+
+  private async processUser(user: UserData): Promise<ProcessedData> {
+    // Обработка пользователя
+    return {
+      id: user.id,
+      processedAt: new Date(),
+      status: 'processed'
+    };
+  }
+}
+
+interface UserData {
+  id: string;
+  name: string;
+  email: string;
+}
+
+interface ProcessedData {
+  id: string;
+  processedAt: Date;
+  status: string;
+}
 ```
 
 ### Условный трейсинг
 
 ```typescript
-// Трейсинг только в продакшене
-await initializeOTLP({
-  enabled: process.env.NODE_ENV === 'production',
-  serviceName: 'my-app',
-  endpoint: process.env.OTLP_ENDPOINT
-});
+import { ConfigManager, OTLPLazy } from '@astrot1988/otlp';
 
-// Трейсинг только для определенных пользователей
-const shouldTrace = user.isBetaUser || user.isAdmin;
-if (shouldTrace) {
-  await withTrace('beta-feature', async () => {
-    return await executeBetaFeature();
-  });
-}
-
-// Трейсинг с семплированием (10% запросов)
-const shouldTrace = Math.random() < 0.1;
-if (shouldTrace) {
-  await withTrace('high-frequency-operation', async () => {
-    return await operation();
-  });
-}
-```
-
-### Динамическое изменение конфигурации
-
-```typescript
-import { ConfigManager } from '@astrot1988/otlp';
-
-const config = ConfigManager.getInstance();
-
-// Включить трейсинг во время выполнения
-config.setConfig({ enabled: true, debug: true });
-
-// Отключить для определенных операций
-config.setConfig({ enabled: false });
-await withTrace('operation', async () => {
-  return await operation(); // Не будет трейситься
-});
-
-// Включить обратно
-config.setConfig({ enabled: true });
-```
-
-## 🛠️ Интеграция с фреймворками
-
-### Next.js
-
-```typescript
-// pages/_app.tsx
-import { useEffect } from 'react';
-import { initializeOTLP } from '@astrot1988/otlp';
-
-function MyApp({ Component, pageProps }) {
-  useEffect(() => {
-    initializeOTLP({
-      enabled: process.env.NODE_ENV === 'production',
-      serviceName: 'nextjs-app',
-      endpoint: process.env.NEXT_PUBLIC_OTLP_ENDPOINT,
-      enableAutoInstrumentation: true
-    });
-  }, []);
-
-  return <Component {...pageProps} />;
-}
-
-// pages/api/users.ts
-import { withTrace } from '@astrot1988/otlp';
-
-export default async function handler(req, res) {
-  const users = await withTrace('api.get-users', async () => {
-    return await database.users.findMany();
-  }, {
-    attributes: {
-      'http.method': req.method,
-      'http.url': req.url
+class ConditionalService {
+  private shouldTrace(operation: string): boolean {
+    const config = ConfigManager.getInstance().getConfig();
+    
+    // Различные условия для разных операций
+    if (operation.includes('critical')) {
+      return true; // Всегда трейсим критические операции
     }
-  });
-
-  res.json(users);
-}
-```
-
-### Vue.js
-
-```typescript
-// main.ts
-import { createApp } from 'vue';
-import { initializeOTLP } from '@astrot1988/otlp';
-
-const app = createApp(App);
-
-initializeOTLP({
-  enabled: import.meta.env.PROD,
-  serviceName: 'vue-app',
-  endpoint: import.meta.env.VITE_OTLP_ENDPOINT
-});
-
-// В компонентах
-import { withTrace } from '@astrot1988/otlp';
-
-export default {
-  methods: {
-    async fetchData() {
-      this.data = await withTrace('fetch-component-data', async () => {
-        const response = await fetch('/api/data');
-        return response.json();
-      }, {
-        attributes: {
-          'component': 'UserDashboard',
-          'user.id': this.userId
-        }
-      });
+    
+    if (operation.includes('frequent')) {
+      return Math.random() < 0.1; // 10% семплирование для частых операций
     }
+    
+    return config.enabled;
   }
-};
-```
 
-### Angular
-
-```typescript
-// app.module.ts
-import { APP_INITIALIZER } from '@angular/core';
-import { initializeOTLP } from '@astrot1988/otlp';
-
-function initializeTracing() {
-  return () => initializeOTLP({
-    enabled: !environment.production,
-    serviceName: 'angular-app',
-    endpoint: environment.otlpEndpoint
-  });
-}
-
-@NgModule({
-  providers: [
-    {
-      provide: APP_INITIALIZER,
-      useFactory: initializeTracing,
-      multi: true
+  async performOperation(type: 'critical' | 'frequent' | 'normal', data: any): Promise<any> {
+    const operationName = `service.${type}-operation`;
+    
+    if (!this.shouldTrace(operationName)) {
+      // Выполняем без трейсинга
+      return await this.executeOperation(data);
     }
-  ]
-})
-export class AppModule { }
 
-// В сервисах
-import { Injectable } from '@angular/core';
-import { withTrace } from '@astrot1988/otlp';
-
-@Injectable()
-export class UserService {
-  async getUser(id: string) {
-    return withTrace('user.get', async () => {
-      return this.http.get(`/api/users/${id}`).toPromise();
+    // Выполняем с трейсингом
+    return withTrace(operationName, async () => {
+      return await this.executeOperation(data);
+    }, {
+      attributes: {
+        'operation.type': type,
+        'data.size': JSON.stringify(data).length
+      }
     });
+  }
+
+  private async executeOperation(data: any): Promise<any> {
+    // Логика операции
+    await new Promise(resolve => setTimeout(resolve, 100));
+    return { result: 'success', processedData: data };
   }
 }
 ```
 
-## 🔍 Отладка
+## 🌐 Настройка для фреймворков
 
-### Включение отладочного режима
-
-```typescript
-await initializeOTLP({
-  enabled: true,
-  serviceName: 'debug-app',
-  debug: true // Включает логирование всех операций трейсинга
-});
-
-// В консоли увидите:
-// OTLP initialized successfully { serviceName: 'debug-app' }
-// Starting span: user-operation
-// Adding attribute: user.id = 123
-// Ending span: user-operation (success)
-```
-
-### Проверка конфигурации
-
-```typescript
-import { ConfigManager } from '@astrot1988/otlp';
-
-const config = ConfigManager.getInstance();
-console.log('Current config:', config.getConfig());
-
-// Проверка состояния
-if (!config.getConfig().enabled) {
-  console.log('Tracing is disabled');
-}
-```
-
-### Тестирование без внешнего коллектора
-
-```typescript
-// Трейсы создаются, но не отправляются
-await initializeOTLP({
-  enabled: true,
-  serviceName: 'test-app',
-  debug: true
-  // Без endpoint - трейсы только логируются
-});
-
-const result = await withTrace('test-operation', async () => {
-  return 'success';
-});
-
-console.log('Result:', result); // Result: success
-```
-
-## 📦 Сборка и развертывание
-
-### Webpack конфигурация
-
-```javascript
-// webpack.config.js
-module.exports = {
-  resolve: {
-    fallback: {
-      "buffer": require.resolve("buffer/"),
-      "util": require.resolve("util/")
-    }
-  },
-  plugins: [
-    new webpack.DefinePlugin({
-      'process.env.OTLP_ENDPOINT': JSON.stringify(process.env.OTLP_ENDPOINT),
-      'process.env.OTLP_ENABLED': JSON.stringify(process.env.OTLP_ENABLED)
-    })
-  ]
-};
-```
-
-### Docker
-
-```dockerfile
-FROM node:18-alpine
-
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-
-COPY . .
-
-ENV OTLP_ENABLED=true
-ENV OTLP_SERVICE_NAME=my-app
-ENV OTLP_ENDPOINT=http://otel-collector:4318/v1/traces
-
-EXPOSE 3000
-CMD ["npm", "start"]
-```
-
-### Kubernetes
-
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: my-app
-spec:
-  template:
-    spec:
-      containers:
-      - name: my-app
-        image: my-app:latest
-        env:
-        - name: OTLP_ENABLED
-          value: "true"
-        - name: OTLP_SERVICE_NAME
-          value: "my-app"
-        - name: OTLP_ENDPOINT
-          value: "http://otel-collector:4318/v1/traces"
-```
-
-## 🤝 Совместимость
-
-- **Браузеры**: Chrome 60+, Firefox 55+, Safari 12+, Edge 79+
-- **Node.js**: 16+ (для SSR)
-- **Фреймворки**: React, Vue, Angular, Next.js, Nuxt.js
-- **Сборщики**: Webpack, Vite, Rollup, Parcel
-- **TypeScript**: 4.5+
-
-## 📄 Лицензия
-
-MIT
-
-## 🤝 Вклад в проект
-
-Приветствуются Pull Request'ы и Issues!
-
-1. Fork проекта
-2. Создайте feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit изменения (`git commit -m 'Add amazing feature'`)
-4. Push в branch (`git push origin feature/amazing-feature`)
-5. Откройте Pull Request
-
+### Натив

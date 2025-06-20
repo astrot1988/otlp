@@ -39,6 +39,11 @@ export class ConfigManager {
     return { ...this.config };
   }
 
+  // ✅ Добавляем метод isEnabled для совместимости с OTLPFull
+  public isEnabled(): boolean {
+    return this.config.enabled;
+  }
+
   private loadFromEnvironment(): void {
     if (typeof process !== 'undefined' && process.env) {
       this.config = {
@@ -47,7 +52,9 @@ export class ConfigManager {
         serviceName: process.env.OTLP_SERVICE_NAME || this.config.serviceName,
         serviceVersion: process.env.OTLP_SERVICE_VERSION || this.config.serviceVersion,
         endpoint: process.env.OTLP_ENDPOINT || this.config.endpoint,
-        debug: process.env.OTLP_DEBUG === 'true'
+        debug: process.env.OTLP_DEBUG === 'true',
+        traceOnErrorOnly: process.env.OTLP_TRACE_ON_ERROR_ONLY === 'true',
+        enableAutoInstrumentation: process.env.OTLP_ENABLE_AUTO_INSTRUMENTATION === 'true'
       };
     }
   }

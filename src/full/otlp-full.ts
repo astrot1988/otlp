@@ -1,5 +1,5 @@
 import { IOTLPTracer, TraceOptions } from '../types.js';
-import { ConfigManager } from '../config.js';
+import { ConfigManager, type OTLPConfig } from '../config.js';
 import { NoOpTracer } from '../core/no-op.js';
 
 // Импортируем все зависимости сразу
@@ -18,7 +18,10 @@ export class OTLPFull implements IOTLPTracer {
   private currentSpan: Span | null = null;
   private isInitialized = false;
 
-  constructor() {
+  constructor(config?: Partial<OTLPConfig>) {
+    if (config) {
+      ConfigManager.getInstance().setConfig(config);
+    }
     this.initialize();
   }
 
@@ -33,53 +36,76 @@ export class OTLPFull implements IOTLPTracer {
     }
 
     try {
+      const serviceName = config.serviceName || 'unknown-service';
+      const serviceVersion = config.serviceVersion || '1.0.0';
+
       // Создаем ресурс
       const resource = new Resource({
-        [SEMRESATTRS_SERVICE_NAME]: config.serviceName,
-        [SEMRESATTRS_SERVICE_VERSION]: config.serviceVersion,
+        [SEMRESATTRS_SERVICE_NAME]: serviceName,
+        [SEMRESATTRS_SERVICE_VERSION]: serviceVersion,
       });
 
       // Создаем провайдер трейсов
       this.provider = new WebTracerProvider({ resource });
 
-      // Создаем экспортер
-      const exporter = new OTLPTraceExporter({
-        url: config.endpoint,
-        headers: config.headers,
-      });
+      // Создаем экспортер только если есть endpoint
+      if (config.endpoint) {
+        const exporter = new OTLPTraceExporter({
+          url: config.endpoint,
+          headers: config.headers || {},
+        });
 
-      // Добавляем процессор
-      this.provider.addSpanProcessor(new BatchSpanProcessor(exporter));
+        this.provider.addSpanProcessor(new BatchSpanProcessor(exporter));
+      }
 
       // Регистрируем провайдер
       this.provider.register();
 
       // Получаем трейсер
-      this.tracer = this.provider.getTracer(config.serviceName, config.serviceVersion);
+      this.tracer = this.provider.getTracer(serviceName, serviceVersion);
 
-      // Автоинструментирование (если включено)
       if (config.enableAutoInstrumentation) {
-        const instrumentations = getWebAutoInstrumentations({
-          '@opentelemetry/instrumentation-fs': {
-            enabled: false,
-          },
-        });
+        try {
+          const instrumentations = getWebAutoInstrumentations();
 
-        instrumentations.forEach(instrumentation => {
-          try {
-            instrumentation.enable();
-          } catch (error) {
-            if (config.debug) {
-              console.warn('[OTLP-Full] Failed to enable instrumentation:', error);
+          instrumentations.forEach(instrumentation => {
+            try {
+              // Отключаем проблемные инструментации по имени
+              const name = instrumentation.instrumentationName || '';
+              if (name.includes('fs') || name.includes('http') || name.includes('net')) {
+                instrumentation.disable();
+                if (config.debug) {
+                  console.log(`[OTLP-Full] Disabled instrumentation: ${name}`);
+                }
+              } else {
+                instrumentation.enable();
+                if (config.debug) {
+                  console.log(`[OTLP-Full] Enabled instrumentation: ${name}`);
+                }
+              }
+            } catch (instrError) {
+              if (config.debug) {
+                console.warn('[OTLP-Full] Failed to configure instrumentation:', instrumentation.instrumentationName, instrError);
+              }
             }
+          });
+        } catch (autoInstrError) {
+          if (config.debug) {
+            console.warn('[OTLP-Full] Failed to initialize auto-instrumentation:', autoInstrError);
           }
-        });
+        }
       }
 
       this.isInitialized = true;
 
       if (config.debug) {
-        console.log('[OTLP-Full] Initialized successfully');
+        console.log('[OTLP-Full] Initialized successfully', {
+          serviceName,
+          serviceVersion,
+          endpoint: config.endpoint,
+          traceOnErrorOnly: config.traceOnErrorOnly,
+          enableAutoInstrumentation: config.enableAutoInstrumentation
+        });
       }
     } catch (error) {
       console.error('[OTLP-Full] Failed to initialize:', error);
@@ -107,22 +133,31 @@ export class OTLPFull implements IOTLPTracer {
 
       const config = ConfigManager.getInstance().getConfig();
       const spanName = `${target.constructor.name}.${propertyKey}`;
-      const span = self.tracer.startSpan(spanName);
 
       try {
         const result = await originalMethod.apply(this, args);
 
-        if (!config.traceOnErrorOnly) {
-          span.setStatus({ code: 1 }); // OK
+        if (config.traceOnErrorOnly) {
+          return result;
         }
+
+        const span = self.tracer.startSpan(spanName);
+        span.setStatus({ code: 1 }); // OK
+        span.end();
 
         return result;
       } catch (error) {
-        span.recordException(error);
-        span.setStatus({ code: 2, message: error.message }); // ERROR
-        throw error;
-      } finally {
+        // ✅ ИСПРАВЛЕНО: Правильная типизация error
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const span = self.tracer.startSpan(spanName);
+
+        if (error instanceof Error) {
+          span.recordException(error);
+        }
+
+        span.setStatus({ code: 2, message: errorMessage }); // ERROR
         span.end();
+        throw error;
       }
     };
 
@@ -169,7 +204,6 @@ export class OTLPFull implements IOTLPTracer {
     this.currentSpan.recordException(error);
   }
 
-  // Дополнительные методы для полной версии
   public shutdown(): Promise<void> {
     if (this.provider) {
       return this.provider.shutdown();
@@ -190,5 +224,15 @@ export class OTLPFull implements IOTLPTracer {
 
   public isReady(): boolean {
     return this.isInitialized && this.tracer !== null;
+  }
+
+  public configure(config: Partial<OTLPConfig>): void {
+    ConfigManager.getInstance().setConfig(config);
+
+    if (this.isInitialized) {
+      this.shutdown().then(() => {
+        this.initialize();
+      });
+    }
   }
 }

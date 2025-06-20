@@ -1,6 +1,8 @@
+import type { OTLPLazy } from '../lazy/index.js';
+
 export interface LazyTraceable {
-  _lazyTracer?: any;
-  _errorTracer?: any;
+  _lazyTracer?: OTLPLazy;
+  _errorTracer?: OTLPLazy;
   shouldTrace?(): boolean;
 }
 
@@ -15,10 +17,20 @@ export interface LazyTraceErrorOptions {
   attributes?: Record<string, any>;
   includeArgs?: boolean;
   errorFilter?: (error: Error) => boolean;
-  onError?: (error: Error, context: any) => void;
+  onError?: (error: Error, context: {
+    methodName: string;
+    className: string;
+    args: any[];
+    duration: number;
+  }) => void;
 }
 
 export interface LazyTraceAdvancedOptions extends LazyTraceOptions, LazyTraceErrorOptions {
-  onSuccess?: (result: any, context: any) => void;
+  onSuccess?: (result: any, context: {
+    methodName: string;
+    className: string;
+    args: any[];
+    duration: number;
+  }) => void;
   traceOnlyOnError?: boolean;
 }
