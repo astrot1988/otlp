@@ -1,32 +1,19 @@
 import { OTLPLazy } from '../lazy/index.js';
-import { ConfigManager } from '../config.js';
-import type { LazyTraceable, LazyTraceOptions, LazyTraceErrorOptions } from './types.js';
+import type { LazyTraceable, LazyTraceOptions, LazyTraceErrorOptions, LazyTraceAdvancedOptions } from './types.js';
 
 function isError(error: unknown): error is Error {
   return error instanceof Error;
 }
 
 function shouldEnableTracing(instance: LazyTraceable): boolean {
-  const config = ConfigManager.getInstance().getConfig();
-
-  // Если глобально отключено в конфиге, не включаем
-  if (!config.enabled) {
-    return false;
-  }
-
-  // Проверяем метод shouldTrace экземпляра
-  if (instance.shouldTrace?.() === false) {
-    return false;
-  }
-
-  // Проверяем переменные окружения
-  return process.env.NODE_ENV === 'production' || process.env.ENABLE_TRACING === 'true';
+  return instance.shouldTrace?.() !== false &&
+    (process.env.NODE_ENV === 'production' || process.env.ENABLE_TRACING === 'true');
 }
 
 export function lazyTrace(spanName: string, options: LazyTraceOptions = {}) {
   return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-    if (!descriptor || !descriptor.value || typeof descriptor.value !== 'function') {
-      throw new Error(`lazyTrace decorator can only be applied to methods. Applied to: ${propertyKey}`);
+    if (!descriptor?.value || typeof descriptor.value !== 'function') {
+      throw new Error('lazyTrace decorator can only be applied to methods');
     }
 
     const originalMethod = descriptor.value;
@@ -105,8 +92,8 @@ export function lazyTrace(spanName: string, options: LazyTraceOptions = {}) {
 
 export function lazyTraceOnError(spanName: string, options: LazyTraceErrorOptions = {}) {
   return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-    if (!descriptor || !descriptor.value || typeof descriptor.value !== 'function') {
-      throw new Error(`lazyTraceOnError decorator can only be applied to methods. Applied to: ${propertyKey}`);
+    if (!descriptor?.value || typeof descriptor.value !== 'function') {
+      throw new Error('lazyTraceOnError decorator can only be applied to methods');
     }
 
     const originalMethod = descriptor.value;
@@ -140,14 +127,15 @@ export function lazyTraceOnError(spanName: string, options: LazyTraceErrorOption
 
           if (options.includeArgs && args.length > 0) {
             await this._errorTracer.addAttribute('args.count', args.length);
-            args.forEach(async (arg, index) => {
+            for (let i = 0; i < args.length; i++) {
+              const arg = args[i];
               if (arg != null) {
-                await this._errorTracer!.addAttribute(`args.${index}.type`, typeof arg);
+                await this._errorTracer.addAttribute(`args.${i}.type`, typeof arg);
                 if (['string', 'number', 'boolean'].includes(typeof arg)) {
-                  await this._errorTracer!.addAttribute(`args.${index}.value`, String(arg).substring(0, 100));
+                  await this._errorTracer.addAttribute(`args.${i}.value`, String(arg).substring(0, 100));
                 }
               }
-            });
+            }
           }
 
           await this._errorTracer.addAttribute('error.name', err.name);
@@ -184,6 +172,175 @@ export function lazyTraceOnError(spanName: string, options: LazyTraceErrorOption
           }
 
           await this._errorTracer.endSpan(false, `${err.name}: ${err.message}`);
+        }
+
+        throw error;
+      }
+    };
+
+    return descriptor;
+  };
+}
+
+export function lazyTraceAdvanced(spanName: string, options: LazyTraceAdvancedOptions = {}) {
+  return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+    if (!descriptor?.value || typeof descriptor.value !== 'function') {
+      throw new Error('lazyTraceAdvanced decorator can only be applied to methods');
+    }
+
+    const originalMethod = descriptor.value;
+
+    descriptor.value = async function (this: LazyTraceable, ...args: any[]) {
+      if (options.condition && !options.condition.apply(this, args)) {
+        return await originalMethod.apply(this, args);
+      }
+
+      const startTime = Date.now();
+      let tracer: OTLPLazy | null = null;
+
+      // Функция инициализации трейсера с правильной типизацией
+      const initTracer = (): OTLPLazy | null => {
+        if (!tracer && shouldEnableTracing(this)) {
+          tracer = new OTLPLazy();
+        }
+        return tracer;
+      };
+
+      // Если трассируем не только ошибки, инициализируем сразу
+      if (!options.traceOnlyOnError) {
+        tracer = initTracer();
+      }
+
+      try {
+        let result;
+
+        // Начинаем спан, если трейсер инициализирован
+        if (tracer) {
+          await tracer.startSpan(spanName, {
+            attributes: {
+              'method.name': propertyKey,
+              'class.name': target.constructor.name,
+              ...options.attributes
+            }
+          });
+
+          if (options.includeArgs && args.length > 0) {
+            await tracer.addAttribute('args.count', args.length);
+          }
+        }
+
+        // Выполняем метод с таймаутом или без
+        if (options.timeout) {
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error(`Method ${propertyKey} timed out after ${options.timeout}ms`)), options.timeout);
+          });
+
+          result = await Promise.race([
+            originalMethod.apply(this, args),
+            timeoutPromise
+          ]);
+        } else {
+          result = await originalMethod.apply(this, args);
+        }
+
+        // Добавляем атрибуты успешного выполнения
+        if (tracer) {
+          await tracer.addAttribute('execution.duration_ms', Date.now() - startTime);
+
+          if (options.includeResult && result !== undefined) {
+            await tracer.addAttribute('result.type', typeof result);
+            if (Array.isArray(result)) {
+              await tracer.addAttribute('result.length', result.length);
+            } else if (typeof result === 'object' && result !== null) {
+              await tracer.addAttribute('result.keys_count', Object.keys(result).length);
+            }
+          }
+
+          await tracer.addEvent('method.completed', {
+            success: true,
+            duration_ms: Date.now() - startTime
+          });
+
+          await tracer.endSpan(true);
+        }
+
+        // Вызываем callback успешного выполнения
+        if (options.onSuccess) {
+          try {
+            options.onSuccess(result, {
+              methodName: propertyKey,
+              className: target.constructor.name,
+              args: args,
+              duration: Date.now() - startTime
+            });
+          } catch (callbackError) {
+            console.warn('onSuccess callback failed:', callbackError);
+          }
+        }
+
+        return result;
+
+      } catch (error) {
+        const err = isError(error) ? error : new Error(String(error));
+
+        // Проверяем фильтр ошибок
+        if (options.errorFilter && !options.errorFilter(err)) {
+          throw error;
+        }
+
+        // Инициализируем трейсер для ошибки, если еще не инициализирован
+        if (!tracer) {
+          tracer = initTracer();
+        }
+
+        if (tracer) {
+          // Если трассируем только ошибки, начинаем спан здесь
+          if (options.traceOnlyOnError) {
+            await tracer.startSpan(spanName, {
+              attributes: {
+                'method.name': propertyKey,
+                'class.name': target.constructor.name,
+                'error.occurred': true,
+                ...options.attributes
+              }
+            });
+
+            if (options.includeArgs && args.length > 0) {
+              await tracer.addAttribute('args.count', args.length);
+            }
+          }
+
+          // Добавляем информацию об ошибке
+          await tracer.addAttribute('execution.duration_ms', Date.now() - startTime);
+          await tracer.addAttribute('error.type', err.constructor.name);
+          await tracer.addAttribute('error.message', err.message);
+
+          if (err.stack) {
+            await tracer.addAttribute('error.stack', err.stack.substring(0, 1000));
+          }
+
+          await tracer.addEvent('method.error', {
+            error_type: err.constructor.name,
+            error_message: err.message,
+            duration_ms: Date.now() - startTime,
+            timestamp: new Date().toISOString()
+          });
+
+          await tracer.endSpan(false, err.message);
+        }
+
+        // Вызываем callback ошибки
+        if (options.onError) {
+          try {
+            options.onError(err, {
+              methodName: propertyKey,
+              className: target.constructor.name,
+              args: args,
+              duration: Date.now() - startTime
+            });
+          } catch (callbackError) {
+            console.warn('onError callback failed:', callbackError);
+          }
         }
 
         throw error;

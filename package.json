@@ -1,6 +1,6 @@
 {
   "name": "@astrot1988/otlp",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -9,6 +9,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./decorators": {
+      "import": "./dist/decorators/index.js",
+      "types": "./dist/decorators/index.d.ts"
     }
   },
   "files": [
@@ -20,7 +24,8 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
     "test": "tsx src/__tests__/all.test.ts",
-    "test:decorators": "tsx src/__tests__/lazy-decorators.test.ts",    "test:integration": "tsx src/__tests__/integration.test.ts",
+    "test:decorators": "tsx src/__tests__/decorators-manual.test.ts",
+    "test:integration": "tsx src/__tests__/integration.test.ts",
     "test:all": "npm test && npm run test:decorators && npm run test:integration",
     "prepublishOnly": "npm run build"
   },

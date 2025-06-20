@@ -1,28 +1,55 @@
 // Основные экспорты
-export { ConfigManager, otlpConfig, type OTLPConfig } from './config.js';
-export { lazyTrace, lazyTraceOnError, type LazyTraceable } from './decorators/index.js';
+export { ConfigManager, otlpConfig, type OTLPConfig } from './config';
+
+// Экспорт декораторов из правильного файла
+export {
+  lazyTrace,
+  lazyTraceOnError
+} from './decorators/lazy-decorators.js';
+
+// Экспорт типов для декораторов
+export type {
+  LazyTraceable,
+  LazyTraceOptions,
+  LazyTraceErrorOptions
+} from './decorators/types.js';
+
+// Экспорт классов трейсеров
 export { OTLPLazy } from './lazy/index.js';
 
-// Функция-обертка для трейсинга
+// Функция-обертка для трейсинга (альтернатива декораторам)
 export async function withTrace<T>(
   spanName: string,
   fn: () => Promise<T>,
   options?: {
+    includeArgs?: boolean;
+    includeResult?: boolean;
+    timeout?: number;
     attributes?: Record<string, any>;
   }
 ): Promise<T> {
-  const { ConfigManager } = await import('./config.js');
-  const { OTLPLazy } = await import('./lazy/index.js');
+  const {ConfigManager} = await import('./config.js');
+  const {OTLPLazy} = await import('./lazy/otlp-lazy.js');
 
   const config = ConfigManager.getInstance();
+
   if (!config.getConfig().enabled) {
     return fn();
   }
 
   const otlpLazy = new OTLPLazy();
+
   try {
-    await otlpLazy.startSpan(spanName, { attributes: options?.attributes });
+    await otlpLazy.startSpan(spanName, {
+      attributes: options?.attributes
+    });
+
     const result = await fn();
+
+    if (options?.includeResult) {
+      await otlpLazy.addAttribute('result', JSON.stringify(result));
+    }
+
     await otlpLazy.endSpan(true);
     return result;
   } catch (error: unknown) {
@@ -32,16 +59,29 @@ export async function withTrace<T>(
   }
 }
 
-// Простая инициализация OTLP
+// Простая функция для создания и инициализации OTLP
 export async function initializeOTLP(config: {
   enabled: boolean;
   serviceName?: string;
   serviceVersion?: string;
   endpoint?: string;
   debug?: boolean;
+  enableAutoInstrumentation?: boolean;
+  headers?: Record<string, string>;
 }) {
-  const { ConfigManager } = await import('./config.js');
+  const {ConfigManager} = await import('./config.js');
+  const {getOTLPCore} = await import('./core/otlp-core.js');
+
   const configManager = ConfigManager.getInstance();
   configManager.setConfig(config);
-  return { configManager, withTrace };
+
+  const core = getOTLPCore();
+  await core.initialize();
+
+  return {
+    configManager,
+    core,
+    withTrace: (spanName: string, fn: () => Promise<any>, options?: any) =>
+      withTrace(spanName, fn, options)
+  };
 }
