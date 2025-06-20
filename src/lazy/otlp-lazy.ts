@@ -1,9 +1,42 @@
-import { ConfigManager } from '../config.js';
-import { getOTLPCore } from '../core/otlp-core.js';
+import {ConfigManager, type OTLPConfig} from '../config.js';
 
 export class OTLPLazy {
+  private configManager: ConfigManager;
+  private initialized = false;
   private currentSpan: any = null;
-  private core = getOTLPCore();
+  private tracer: any = null;
+
+  constructor() {
+    this.configManager = ConfigManager.getInstance();
+  }
+
+  configure(config: Partial<OTLPConfig>): void {
+    this.configManager.setConfig(config);
+
+    // Если уже инициализирован, сбросить состояние для пересоздания с новой конфигурацией
+    if (this.initialized) {
+      this.reset();
+    }
+  }
+
+  getConfig(): OTLPConfig {
+    return this.configManager.getConfig();
+  }
+
+  private reset(): void {
+    this.initialized = false;
+    this.currentSpan = null;
+    this.tracer = null;
+  }
+
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+
+  isEnabled(): boolean {
+    return this.configManager.getConfig().enabled;
+  }
+
 
   public async startSpan(name: string, options?: {
     attributes?: Record<string, any>;
@@ -15,12 +48,7 @@ export class OTLPLazy {
       return;
     }
 
-    try {
-      await this.core.initialize();
-      this.currentSpan = await this.core.createSpan(name, options);
-    } catch (error: unknown) {
-      console.warn('Failed to start span:', error);
-    }
+    await this.ensureInitialized();
   }
 
   public async endSpan(success: boolean, message?: string): Promise<void> {
@@ -47,11 +75,6 @@ export class OTLPLazy {
         console.log(`Event: ${name}`, attributes);
       }
     }
-  }
-
-  public isEnabled(): boolean {
-    const config = ConfigManager.getInstance();
-    return config.getConfig().enabled;
   }
 
   public async trace<T>(
@@ -89,4 +112,41 @@ export class OTLPLazy {
 
     return descriptor;
   }
+
+  /**
+   * Ленивая инициализация OpenTelemetry
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (this.initialized) {
+      return;
+    }
+
+    const config = this.configManager.getConfig();
+
+    if (!config.enabled) {
+      if (config.debug) {
+        console.log('OTLP: Tracing is disabled');
+      }
+      return;
+    }
+
+    try {
+      // Здесь должна быть логика инициализации OpenTelemetry
+      // Замените на вашу существующую логику инициализации
+
+      this.initialized = true;
+
+      if (config.debug) {
+        console.log('OTLP initialized successfully', {
+          serviceName: config.serviceName,
+          endpoint: config.endpoint
+        });
+      }
+    } catch (error) {
+      if (config.debug) {
+        console.error('Failed to initialize OTLP:', error);
+      }
+    }
+  }
+
 }
