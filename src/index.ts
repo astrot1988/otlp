@@ -71,8 +71,3 @@ export async function initializeOTLP(config: {
       withTrace(spanName, fn, options)
   };
 }
-
-// Тестовая функция (оставляем для совместимости)
-export const testLib = (): string => {
-  return 'LIBTEST';
-}
