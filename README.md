@@ -76,6 +76,221 @@ function App() {
 }
 ```
 
+### React с ленивой инициализацией
+
+```typescript
+import React, { useState, useCallback } from 'react';
+import { OTLPLazy } from '@astrot1988/otlp';
+
+function UserDashboard() {
+  const [tracer, setTracer] = useState<OTLPLazy | null>(null);
+  const [userData, setUserData] = useState(null);
+
+  // Ленивая инициализация трейсера
+  const getTracer = useCallback(() => {
+    if (!tracer && process.env.NODE_ENV === 'production') {
+      const newTracer = new OTLPLazy();
+      setTracer(newTracer);
+      return newTracer;
+    }
+    return tracer;
+  }, [tracer]);
+
+  const fetchUserData = async (userId: string) => {
+    const currentTracer = getTracer();
+    
+    if (currentTracer) {
+      await currentTracer.startSpan('react.fetch-user-data', {
+        attributes: {
+          'component': 'UserDashboard',
+          'user.id': userId,
+          'operation': 'fetch'
+        }
+      });
+    }
+
+    try {
+      const response = await fetch(`/api/users/${userId}`);
+      const data = await response.json();
+      
+      if (currentTracer) {
+        await currentTracer.addEvent('data.fetched', {
+          'data.size': JSON.stringify(data).length,
+          'response.status': response.status
+        });
+        await currentTracer.endSpan(true);
+      }
+
+      setUserData(data);
+      return data;
+    } catch (error) {
+      if (currentTracer) {
+        await currentTracer.addEvent('fetch.error', {
+          'error.message': error.message
+        });
+        await currentTracer.endSpan(false, error.message);
+      }
+      throw error;
+    }
+  };
+
+  const handleUserAction = async (action: string) => {
+    const currentTracer = getTracer();
+    
+    if (currentTracer) {
+      await currentTracer.startSpan(`react.user-action.${action}`, {
+        attributes: {
+          'ui.action': action,
+          'component': 'UserDashboard'
+        }
+      });
+
+      try {
+        // Выполнение действия
+        await performUserAction(action);
+        await currentTracer.endSpan(true);
+      } catch (error) {
+        await currentTracer.endSpan(false, error.message);
+        throw error;
+      }
+    } else {
+      // Выполнение без трейсинга
+      await performUserAction(action);
+    }
+  };
+
+  return (
+    <div>
+      <button onClick={() => fetchUserData('123')}>
+        Load User Data
+      </button>
+      <button onClick={() => handleUserAction('update-profile')}>
+        Update Profile
+      </button>
+      {userData && <div>{JSON.stringify(userData)}</div>}
+    </div>
+  );
+}
+```
+
+### React Hook для ленивого трейсинга
+
+```typescript
+import { useState, useCallback, useRef } from 'react';
+import { OTLPLazy } from '@astrot1988/otlp';
+
+function useLazyTracing(componentName: string) {
+  const tracerRef = useRef<OTLPLazy | null>(null);
+  const [isTracingEnabled, setIsTracingEnabled] = useState(
+    process.env.NODE_ENV === 'production'
+  );
+
+  const getTracer = useCallback(() => {
+    if (!tracerRef.current && isTracingEnabled) {
+      tracerRef.current = new OTLPLazy();
+    }
+    return tracerRef.current;
+  }, [isTracingEnabled]);
+
+  const traceOperation = useCallback(async (
+    operationName: string,
+    operation: () => Promise<any>,
+    attributes: Record<string, any> = {}
+  ) => {
+    const tracer = getTracer();
+    
+    if (tracer) {
+      await tracer.startSpan(`${componentName}.${operationName}`, {
+        attributes: {
+          'component': componentName,
+          ...attributes
+        }
+      });
+
+      try {
+        const result = await operation();
+        await tracer.endSpan(true);
+        return result;
+      } catch (error) {
+        await tracer.endSpan(false, error.message);
+        throw error;
+      }
+    } else {
+      return await operation();
+    }
+  }, [componentName, getTracer]);
+
+  const toggleTracing = useCallback((enabled: boolean) => {
+    setIsTracingEnabled(enabled);
+    if (!enabled) {
+      tracerRef.current = null;
+    }
+  }, []);
+
+  return {
+    traceOperation,
+    toggleTracing,
+    isTracingEnabled
+  };
+}
+
+// Использование хука
+function ProductList() {
+  const { traceOperation, toggleTracing, isTracingEnabled } = useLazyTracing('ProductList');
+  const [products, setProducts] = useState([]);
+
+  const loadProducts = async () => {
+    const data = await traceOperation('load-products', async () => {
+      const response = await fetch('/api/products');
+      return response.json();
+    }, {
+      'operation.type': 'data-fetch'
+    });
+
+    setProducts(data);
+  };
+
+  const addToCart = async (productId: string) => {
+    await traceOperation('add-to-cart', async () => {
+      const response = await fetch('/api/cart/add', {
+        method: 'POST',
+        body: JSON.stringify({ productId })
+      });
+      return response.json();
+    }, {
+      'product.id': productId,
+      'operation.type': 'user-action'
+    });
+  };
+
+  return (
+    <div>
+      <div>
+        <label>
+          <input
+            type="checkbox"
+            checked={isTracingEnabled}
+            onChange={(e) => toggleTracing(e.target.checked)}
+          />
+          Enable Tracing
+        </label>
+      </div>
+      
+      <button onClick={loadProducts}>Load Products</button>
+      
+      {products.map(product => (
+        <div key={product.id}>
+          <span>{product.name}</span>
+          <button onClick={() => addToCart(product.id)}>
+            Add to Cart
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
 ## 📚 API
 
 ### `initializeOTLP(config)`
