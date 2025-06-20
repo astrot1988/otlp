@@ -1,5 +1,5 @@
 {
-  "name": "astrot1988/otlp",
+  "name": "@astrot1988/otlp",
   "version": "1.0.5",
   "type": "module",
   "main": "./dist/index.js",
