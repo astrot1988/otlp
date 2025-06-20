@@ -1,7 +1,7 @@
 // Основные экспорты
-export { ConfigManager, otlpConfig, type OTLPConfig } from './config.js';
-export { OTLPLazy } from './lazy/otlp-lazy.js';
-export { OTLPCore, getOTLPCore } from './core/otlp-core.js';
+export {ConfigManager, otlpConfig, type OTLPConfig} from './config.js';
+export {OTLPLazy} from './lazy/otlp-lazy.js';
+export {OTLPCore, getOTLPCore} from './core/otlp-core.js';
 
 // Функция-обертка для трейсинга (альтернатива декораторам)
 export async function withTrace<T>(
@@ -14,8 +14,8 @@ export async function withTrace<T>(
     attributes?: Record<string, any>;
   }
 ): Promise<T> {
-  const { ConfigManager } = await import('./config.js');
-  const { OTLPLazy } = await import('./lazy/otlp-lazy.js');
+  const {ConfigManager} = await import('./config.js');
+  const {OTLPLazy} = await import('./lazy/otlp-lazy.js');
 
   const config = ConfigManager.getInstance();
 
@@ -55,8 +55,8 @@ export async function initializeOTLP(config: {
   enableAutoInstrumentation?: boolean;
   headers?: Record<string, string>;
 }) {
-  const { ConfigManager } = await import('./config.js');
-  const { getOTLPCore } = await import('./core/otlp-core.js');
+  const {ConfigManager} = await import('./config.js');
+  const {getOTLPCore} = await import('./core/otlp-core.js');
 
   const configManager = ConfigManager.getInstance();
   configManager.setConfig(config);
