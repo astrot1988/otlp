@@ -104,8 +104,14 @@ import { OTLPLazy } from '@astrot1988/otlp';
 // Создание экземпляра (OpenTelemetry НЕ инициализируется)
 const tracer = new OTLPLazy({
   serviceName: 'my-web-app',
+  enableAutoInstrumentation: true,  
   endpoint: 'http://localhost:4318/v1/traces',
-  debug: true
+  debug: true,
+  traceOnErrorOnly: false,         
+  serviceVersion: '1.0.0',          
+  headers: {                        
+    'Authorization': 'Bearer token'
+  }
 });
 
 // OpenTelemetry инициализируется только при первом использовании

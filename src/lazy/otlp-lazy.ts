@@ -6,10 +6,10 @@ export class OTLPLazy {
   private currentSpan: any = null;
   private tracer: any = null;
 
+  // ✅ ИСПРАВЛЕНО: Полная поддержка всех полей OTLPConfig
   constructor(config?: Partial<OTLPConfig>) {
     this.configManager = ConfigManager.getInstance();
 
-    // ✅ Поддержка частичной конфигурации в конструкторе
     if (config) {
       this.configManager.setConfig(config);
     }
@@ -42,7 +42,6 @@ export class OTLPLazy {
     return this.configManager.getConfig().enabled;
   }
 
-
   public async startSpan(name: string, options?: {
     attributes?: Record<string, any>;
     kind?: any;
@@ -60,25 +59,64 @@ export class OTLPLazy {
     }
 
     await this.ensureInitialized();
+
+    // Создаем span после инициализации
+    if (this.tracer) {
+      try {
+        this.currentSpan = this.tracer.startSpan(name, {
+          attributes: options?.attributes || {}
+        });
+      } catch (error) {
+        if (config.debug) {
+          console.warn('Failed to start span:', error);
+        }
+      }
+    }
   }
 
   public async endSpan(success: boolean, message?: string): Promise<void> {
     if (this.currentSpan) {
-      this.currentSpan.setStatus(success, message);
-      this.currentSpan.end();
-      this.currentSpan = null;
+      try {
+        if (success) {
+          this.currentSpan.setStatus({ code: 1 }); // OK
+        } else {
+          this.currentSpan.setStatus({ code: 2, message: message || 'Error' }); // ERROR
+        }
+        this.currentSpan.end();
+      } catch (error) {
+        const config = this.configManager.getConfig();
+        if (config.debug) {
+          console.warn('Failed to end span:', error);
+        }
+      } finally {
+        this.currentSpan = null;
+      }
     }
   }
 
   public async addAttribute(key: string, value: any): Promise<void> {
     if (this.currentSpan) {
-      this.currentSpan.addAttribute(key, value);
+      try {
+        this.currentSpan.setAttributes({ [key]: value });
+      } catch (error) {
+        const config = this.configManager.getConfig();
+        if (config.debug) {
+          console.warn('Failed to add attribute:', error);
+        }
+      }
     }
   }
 
   public async addEvent(name: string, attributes?: Record<string, any>): Promise<void> {
     if (this.currentSpan) {
-      this.currentSpan.addEvent(name, attributes);
+      try {
+        this.currentSpan.addEvent(name, attributes);
+      } catch (error) {
+        const config = this.configManager.getConfig();
+        if (config.debug) {
+          console.warn('Failed to add event:', error);
+        }
+      }
     } else {
       // Fallback для тестов и отладки
       const config = this.configManager.getConfig();
@@ -144,14 +182,68 @@ export class OTLPLazy {
     }
 
     try {
-      // Здесь должна быть логика инициализации OpenTelemetry
-      // Замените на вашу существующую логику инициализации
+      // ✅ Динамический импорт OpenTelemetry модулей
+      const { trace } = await import('@opentelemetry/api');
+      const { WebTracerProvider } = await import('@opentelemetry/sdk-trace-web');
+      const { Resource } = await import('@opentelemetry/resources');
+      const { SemanticResourceAttributes } = await import('@opentelemetry/semantic-conventions');
+      const { BatchSpanProcessor } = await import('@opentelemetry/sdk-trace-web');
+
+      const serviceName = config.serviceName || 'unknown-service';
+      const serviceVersion = config.serviceVersion || '1.0.0';
+
+      // Создание провайдера
+      const provider = new WebTracerProvider({
+        resource: new Resource({
+          [SemanticResourceAttributes.SERVICE_NAME]: serviceName,
+          [SemanticResourceAttributes.SERVICE_VERSION]: serviceVersion,
+        }),
+      });
+
+      // Настройка экспортера, если указан endpoint
+      if (config.endpoint) {
+        const { OTLPTraceExporter } = await import('@opentelemetry/exporter-trace-otlp-http');
+        const exporter = new OTLPTraceExporter({
+          url: config.endpoint,
+          headers: config.headers || {},
+        });
+
+        provider.addSpanProcessor(new BatchSpanProcessor(exporter));
+      }
+
+      // ✅ Автоинструментация (если включена)
+      if (config.enableAutoInstrumentation) {
+        try {
+          const { getWebAutoInstrumentations } = await import('@opentelemetry/auto-instrumentations-web');
+          const { registerInstrumentations } = await import('@opentelemetry/instrumentation');
+
+          const instrumentations = getWebAutoInstrumentations();
+          registerInstrumentations({
+            instrumentations: instrumentations,
+          });
+
+          if (config.debug) {
+            console.log('OTLP Lazy: Auto-instrumentation enabled');
+          }
+        } catch (autoInstrError) {
+          if (config.debug) {
+            console.warn('OTLP Lazy: Failed to enable auto-instrumentation:', autoInstrError);
+          }
+        }
+      }
+
+      // Регистрация провайдера
+      provider.register();
+
+      // Получение трейсера
+      this.tracer = trace.getTracer(serviceName, serviceVersion);
 
       this.initialized = true;
 
       if (config.debug) {
         console.log('OTLP Lazy initialized successfully', {
-          serviceName: config.serviceName,
+          serviceName,
+          serviceVersion,
           endpoint: config.endpoint,
           traceOnErrorOnly: config.traceOnErrorOnly,
           enableAutoInstrumentation: config.enableAutoInstrumentation
@@ -159,9 +251,9 @@ export class OTLPLazy {
       }
     } catch (error) {
       if (config.debug) {
-        console.error('Failed to initialize OTLP:', error);
+        console.error('Failed to initialize OTLP Lazy:', error);
       }
+      this.initialized = false;
     }
   }
-
 }
