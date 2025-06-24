@@ -159,8 +159,6 @@ export class OTLPLazy {
     }
 
     try {
-      await this.ensureInitialized();
-
       if (this.currentSpan) {
         if (code === 'OK') {
           this.currentSpan.setStatus({ code: 1 }); // SpanStatusCode.OK = 1
