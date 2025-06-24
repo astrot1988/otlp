@@ -285,6 +285,33 @@ console.log('Current tracing status:', getTracingStatus());
 ## 🎯 Работа с декораторами
 
 ### Базовые декораторы
+```typescript
+  // Всегда трейсит
+  @trace('api.settlements.findOne', {
+    attributes: { 'http.method': 'GET' },
+    includeArgs: true,
+    includeResult: true
+  })
+  static async findOne(id: number): Promise<SettlementEntity> {
+    const res = await api.get(`/odata/settlements_geometry(${id})`);
+    return new SettlementEntity(res.d);
+  }
+
+  // Трейсит только ошибки
+  @traceOnError('api.settlements.error', {
+    attributes: { 'error.type': 'api' },
+    includeArgs: true
+  })
+  static async riskyOperation(data: any): Promise<void> {
+    if (Math.random() > 0.5) {
+      throw new Error('Random failure');
+    }
+  }
+}
+```
+
+
+
 
 ```typescript
 import { lazyTrace, lazyTraceOnError, type LazyTraceable } from '@astrot1988/otlp';

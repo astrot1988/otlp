@@ -120,4 +120,5 @@ export async function initializeOTLPWithMode(
   } else {
     return await initializeOTLP(config);
   }
+
 }

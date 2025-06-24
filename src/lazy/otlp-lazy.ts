@@ -153,6 +153,20 @@ export class OTLPLazy {
     }
   }
 
+  public async setStatus(status: 'ok' | 'error', message?: string): Promise<void> {
+    if (this.currentSpan) {
+      try {
+        const code = status === 'ok' ? 1 : 2;
+        this.currentSpan.setStatus({ code, message });
+      } catch (error) {
+        const config = this.configManager.getConfig();
+        if (config.debug) {
+          console.warn('Failed to set status:', error);
+        }
+      }
+    }
+  }
+
   public async addEvent(name: string, attributes?: Record<string, any>): Promise<void> {
     if (this.currentSpan) {
       try {
