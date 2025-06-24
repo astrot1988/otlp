@@ -3,7 +3,7 @@ import {ConfigManager, type OTLPConfig} from '../config.js';
 export class OTLPLazy {
   private configManager: ConfigManager;
   private initialized = false;
-  currentSpan: any = null;
+  private currentSpan: any = null;
   private tracer: any = null;
 
   constructor(config?: Partial<OTLPConfig>) {
