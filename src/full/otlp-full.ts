@@ -183,14 +183,17 @@ export class OTLPFull implements IOTLPTracer {
 
     try {
       if (success) {
-        this.currentSpan.setStatus({
-          code: 1,
-          message: message || 'Success' // ✅ Используем переданное сообщение
-        });
+        // ✅ Для успешного статуса не передаем message
+        this.currentSpan.setStatus({ code: 1 });
+        // ✅ Добавляем message как атрибут
+        if (message) {
+          this.currentSpan.setAttributes({ 'span.message': message });
+        }
       } else {
+        // ✅ Для ошибки передаем message
         this.currentSpan.setStatus({
           code: 2,
-          message: message || 'Error' // ✅ Используем переданное сообщение
+          message: message || 'Error'
         });
       }
     } finally {

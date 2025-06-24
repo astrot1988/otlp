@@ -125,9 +125,18 @@ export class OTLPLazy {
     if (this.currentSpan) {
       try {
         if (success) {
-          this.currentSpan.setStatus({ code: 1, message: message || 'Success' });
+          // ✅ Для успешного статуса не передаем message
+          this.currentSpan.setStatus({ code: 1 });
+          // ✅ Добавляем message как атрибут или событие
+          if (message) {
+            this.currentSpan.setAttributes({ 'span.message': message });
+          }
         } else {
-          this.currentSpan.setStatus({ code: 2, message: message || 'Error' });
+          // ✅ Для ошибки передаем message
+          this.currentSpan.setStatus({
+            code: 2,
+            message: message || 'Error'
+          });
         }
         this.currentSpan.end();
         this.currentSpan = null;
