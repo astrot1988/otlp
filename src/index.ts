@@ -1,6 +1,9 @@
 // Основные экспорты
 export { ConfigManager, otlpConfig, type OTLPConfig } from './config';
 
+// ✅ ДОБАВЛЕНО: Экспорт новых декораторов
+export { trace, traceOnError } from './decorators/trace.js';
+
 // Экспорт декораторов из правильного файла
 export {
   lazyTrace,
@@ -17,6 +20,9 @@ export type {
 // Экспорт классов трейсеров
 export { OTLPLazy } from './lazy/index.js';
 export { OTLPFull } from './full/otlp-full.js';
+
+// ✅ УБРАТЬ дублирующие экспорты:
+// export { withTrace } from './decorators/with-trace';
 
 // ✅ ИСПРАВЛЕНО: Импортируем тип OTLPConfig для использования в типах
 import type { OTLPConfig } from './config.js';
@@ -120,5 +126,6 @@ export async function initializeOTLPWithMode(
   } else {
     return await initializeOTLP(config);
   }
-
 }
+
+// export { withTrace } from './decorators/with-trace';

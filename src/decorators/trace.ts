@@ -12,11 +12,11 @@ export function trace(spanName: string, options: TraceOptions = {}) {
   return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
     const originalMethod = descriptor?.value || target[propertyKey];
 
-    const newMethod = async function (...args: any[]) {
+    const newMethod = async function (this: any, ...args: any[]) {
       if (options.traceOnError) {
         try {
           return await originalMethod.apply(this, args);
-        } catch (error) {
+        } catch (error: any) {
           const tracer = new OTLPFull();
           const attributes = { ...options.attributes };
 
@@ -47,7 +47,7 @@ export function trace(spanName: string, options: TraceOptions = {}) {
 
           await tracer.endSpan(true);
           return result;
-        } catch (error) {
+        } catch (error: any) {
           await tracer.endSpan(false, error.message);
           throw error;
         }
@@ -67,10 +67,10 @@ export function traceOnError(spanName: string, options: Omit<TraceOptions, 'trac
   return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
     const originalMethod = descriptor?.value || target[propertyKey];
 
-    const newMethod = async function (...args: any[]) {
+    const newMethod = async function (this: any, ...args: any[]) {
       try {
         return await originalMethod.apply(this, args);
-      } catch (error) {
+      } catch (error: any) {
         const tracer = new OTLPFull();
         const attributes = { ...options.attributes };
 
