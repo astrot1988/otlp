@@ -235,4 +235,27 @@ export class OTLPFull implements IOTLPTracer {
       });
     }
   }
+
+  async setStatus(code: 'OK' | 'ERROR', description?: string): Promise<void> {
+    if (!ConfigManager.getInstance().isEnabled()) {
+      return;
+    }
+
+    try {
+      if (this.currentSpan) {
+        if (code === 'OK') {
+          this.currentSpan.setStatus({ code: 1 }); // SpanStatusCode.OK = 1
+        } else {
+          this.currentSpan.setStatus({
+            code: 2, // SpanStatusCode.ERROR = 2
+            message: description
+          });
+        }
+      }
+    } catch (error) {
+      if (ConfigManager.getInstance().getConfig().debug) {
+        console.warn('Failed to set span status:', error);
+      }
+    }
+  }
 }

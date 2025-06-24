@@ -153,16 +153,27 @@ export class OTLPLazy {
     }
   }
 
-  public async setStatus(status: 'ok' | 'error', message?: string): Promise<void> {
-    if (this.currentSpan) {
-      try {
-        const code = status === 'ok' ? 1 : 2;
-        this.currentSpan.setStatus({ code, message });
-      } catch (error) {
-        const config = this.configManager.getConfig();
-        if (config.debug) {
-          console.warn('Failed to set status:', error);
+  public async setStatus(code: 'OK' | 'ERROR', description?: string): Promise<void> {
+    if (!this.configManager.getConfig().enabled) {
+      return;
+    }
+
+    try {
+      await this.ensureInitialized();
+
+      if (this.currentSpan) {
+        if (code === 'OK') {
+          this.currentSpan.setStatus({ code: 1 }); // SpanStatusCode.OK = 1
+        } else {
+          this.currentSpan.setStatus({
+            code: 2, // SpanStatusCode.ERROR = 2
+            message: description
+          });
         }
+      }
+    } catch (error) {
+      if (this.configManager.getConfig().debug) {
+        console.warn('Failed to set span status:', error);
       }
     }
   }
