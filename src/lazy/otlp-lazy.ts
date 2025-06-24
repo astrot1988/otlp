@@ -125,7 +125,7 @@ export class OTLPLazy {
     if (this.currentSpan) {
       try {
         if (success) {
-          this.currentSpan.setStatus({ code: 1 });
+          this.currentSpan.setStatus({ code: 1, message: message || 'Success' });
         } else {
           this.currentSpan.setStatus({ code: 2, message: message || 'Error' });
         }
