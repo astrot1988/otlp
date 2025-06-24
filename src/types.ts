@@ -25,7 +25,7 @@ export interface SpanContext {
 export interface IOTLPTracer {
   trace<T>(target: any, propertyKey: string, descriptor: PropertyDescriptor): PropertyDescriptor;
   startSpan(name: string, options?: TraceOptions): void;
-  endSpan(success?: boolean, error?: Error): void;
+  endSpan(success?: boolean, messageOrError?: string | Error): void;
   addAttribute(key: string, value: any): void;
   recordError(error: Error): void;
 }

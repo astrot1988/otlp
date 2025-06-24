@@ -178,15 +178,20 @@ export class OTLPFull implements IOTLPTracer {
     });
   }
 
-  endSpan(success: boolean = true, error?: Error): void {
+  endSpan(success: boolean = true, message?: string): void {
     if (!this.currentSpan) return;
 
     try {
-      if (error) {
-        this.currentSpan.recordException(error);
-        this.currentSpan.setStatus({ code: 2, message: error.message });
-      } else if (success) {
-        this.currentSpan.setStatus({ code: 1 });
+      if (success) {
+        this.currentSpan.setStatus({
+          code: 1,
+          message: message || 'Success' // ✅ Используем переданное сообщение
+        });
+      } else {
+        this.currentSpan.setStatus({
+          code: 2,
+          message: message || 'Error' // ✅ Используем переданное сообщение
+        });
       }
     } finally {
       this.currentSpan.end();
