@@ -3,21 +3,20 @@ import { OTLPFull } from '../full/otlp-full';
 
 interface TraceOptions {
   attributes?: Record<string, any>;
-  includeArgs?: boolean;    // Включает аргументы метода в атрибуты трейса
-  includeResult?: boolean;  // Включает результат выполнения метода в атрибуты трейса
-  traceOnError?: boolean;   // Трейсит только при ошибках через OTLPFull
+  includeArgs?: boolean;
+  includeResult?: boolean;
+  traceOnError?: boolean;
 }
 
 export function trace(spanName: string, options: TraceOptions = {}) {
   return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-    const originalMethod = descriptor.value;
+    const originalMethod = descriptor?.value || target[propertyKey];
 
-    descriptor.value = async function (...args: any[]) {
+    const newMethod = async function (...args: any[]) {
       if (options.traceOnError) {
-        // Режим только ошибок - используем OTLPFull
         try {
           return await originalMethod.apply(this, args);
-        } catch (error: any) {
+        } catch (error) {
           const tracer = new OTLPFull();
           const attributes = { ...options.attributes };
 
@@ -30,7 +29,6 @@ export function trace(spanName: string, options: TraceOptions = {}) {
           throw error;
         }
       } else {
-        // Обычный режим - используем OTLPLazy
         const tracer = new OTLPLazy();
 
         try {
@@ -49,25 +47,30 @@ export function trace(spanName: string, options: TraceOptions = {}) {
 
           await tracer.endSpan(true);
           return result;
-        } catch (error: any) {
+        } catch (error) {
           await tracer.endSpan(false, error.message);
           throw error;
         }
       }
     };
 
-    return descriptor;
+    if (descriptor) {
+      descriptor.value = newMethod;
+      return descriptor;
+    } else {
+      target[propertyKey] = newMethod;
+    }
   };
 }
 
 export function traceOnError(spanName: string, options: Omit<TraceOptions, 'traceOnError'> = {}) {
   return function (target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-    const originalMethod = descriptor.value;
+    const originalMethod = descriptor?.value || target[propertyKey];
 
-    descriptor.value = async function (...args: any[]) {
+    const newMethod = async function (...args: any[]) {
       try {
         return await originalMethod.apply(this, args);
-      } catch (error: any) {
+      } catch (error) {
         const tracer = new OTLPFull();
         const attributes = { ...options.attributes };
 
@@ -81,6 +84,11 @@ export function traceOnError(spanName: string, options: Omit<TraceOptions, 'trac
       }
     };
 
-    return descriptor;
+    if (descriptor) {
+      descriptor.value = newMethod;
+      return descriptor;
+    } else {
+      target[propertyKey] = newMethod;
+    }
   };
 }

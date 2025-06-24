@@ -1,9 +1,9 @@
 import { ConfigManager } from '../config.js';
-import { Trace } from '../decorators/trace-decorator.js';
+import { trace } from '../decorators/trace.js';
 import { LazyLoader } from '../lazy/loader.js';
 
 class PerformanceTestService {
-  @Trace()
+  @trace('perf.light-method')
   async lightMethod(): Promise<number> {
     return Math.random();
   }
@@ -17,7 +17,7 @@ class PerformanceTestService {
     return sum;
   }
 
-  @Trace()
+  @trace('perf.heavy-method')
   async heavyMethodWithTrace(): Promise<number> {
     // Имитация тяжелой работы
     let sum = 0;
