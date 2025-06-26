@@ -71,6 +71,32 @@ export class OTLPLazy {
 
       provider.register();
 
+      // ✅ ДОБАВЛЯЕМ АВТОИНСТРУМЕНТАЦИЮ
+      if (config.enableAutoInstrumentation) {
+        try {
+          const { getWebAutoInstrumentations } = await import('@opentelemetry/auto-instrumentations-web');
+          const { registerInstrumentations } = await import('@opentelemetry/instrumentation');
+
+          registerInstrumentations({
+            instrumentations: [
+              getWebAutoInstrumentations({
+                // Отключаем проблемные инструментации для браузера
+                '@opentelemetry/instrumentation-fs': { enabled: false },
+                '@opentelemetry/instrumentation-http': { enabled: false },
+              })
+            ],
+          });
+
+          if (config.debug) {
+            console.log('[OTLP-Lazy] Auto-instrumentation enabled');
+          }
+        } catch (autoError) {
+          if (config.debug) {
+            console.warn('[OTLP-Lazy] Auto-instrumentation failed:', autoError);
+          }
+        }
+      }
+
       this.tracer = trace.getTracer(
         config.serviceName || 'lazy-otlp-service',
         config.serviceVersion || '1.0.0'
@@ -81,7 +107,8 @@ export class OTLPLazy {
       if (config.debug) {
         console.log('OTLP Lazy initialized successfully', {
           serviceName: config.serviceName,
-          endpoint: config.endpoint
+          endpoint: config.endpoint,
+          autoInstrumentation: config.enableAutoInstrumentation
         });
       }
     } catch (error) {
