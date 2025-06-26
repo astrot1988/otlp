@@ -1,6 +1,5 @@
 import { ConfigManager } from '../config.js';
 import { trace } from '../decorators/trace.js';
-import { LazyLoader } from '../lazy/loader.js';
 
 class PerformanceTestService {
   @trace('perf.light-method')
@@ -31,7 +30,6 @@ class PerformanceTestService {
 async function testDecoratorPerformance() {
   console.log('🧪 Testing Decorator Performance...');
 
-  LazyLoader.reset();
   const config = ConfigManager.getInstance();
 
   // Test 1: Производительность с отключенной телеметрией
