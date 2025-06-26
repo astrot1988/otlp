@@ -3,6 +3,10 @@ declare global {
     SETTINGS?: {
       OTEL_EXPORTER_OTLP_ENDPOINT_FRONT?: string;
       OTEL_RESOURCE_ATTRIBUTES?: Record<string, any>;
+      OTEL_TRACES_EXPORTER?: string;
+      OTEL_SERVICE_NAME?: string;
+      OTEL_SERVICE_VERSION?: string;
+      OTEL_LOG_LEVEL?: string;
       [key: string]: any;
     };
   }
@@ -40,19 +44,36 @@ export class OTLP {
   private mergeWithDefaults(config?: Partial<OTLPConfig>): OTLPConfig {
     const settings = typeof window !== 'undefined' ? window.SETTINGS : {};
 
+    // Извлекаем все OTEL_ переменные из settings
+    const otelVars = this.extractOtelVariables(settings);
+
     return {
       enabled: config?.enabled ?? !!(settings?.OTEL_EXPORTER_OTLP_ENDPOINT_FRONT),
       mode: config?.mode ?? 'auto',
       traceOnlyErrors: config?.traceOnlyErrors ?? true,
       options: {
-        serviceName: 'web-app',
-        serviceVersion: '1.0.0',
-        endpoint: settings?.OTEL_EXPORTER_OTLP_ENDPOINT_FRONT,
-        resourceAttributes: settings?.OTEL_RESOURCE_ATTRIBUTES || {},
-        debug: false,
+        serviceName: otelVars.OTEL_SERVICE_NAME || 'web-app',
+        serviceVersion: otelVars.OTEL_SERVICE_VERSION || '1.0.0',
+        endpoint: otelVars.OTEL_EXPORTER_OTLP_ENDPOINT_FRONT,
+        resourceAttributes: otelVars,
+        debug: otelVars.OTEL_LOG_LEVEL === 'debug',
         ...config?.options
       }
     };
+  }
+
+  private extractOtelVariables(settings: any): Record<string, any> {
+    const otelVars: Record<string, any> = {};
+
+    if (settings) {
+      Object.keys(settings).forEach(key => {
+        if (key.startsWith('OTEL_')) {
+          otelVars[key] = settings[key];
+        }
+      });
+    }
+
+    return otelVars;
   }
 
   private async initialize(): Promise<void> {
