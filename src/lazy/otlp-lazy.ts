@@ -5,9 +5,10 @@ export class OTLPLazy {
   private initialized = false;
   private currentSpan: any = null;
   private tracer: any = null;
-
+  private config: Partial<OTLPConfig>;
   constructor(config?: Partial<OTLPConfig>) {
     this.configManager = ConfigManager.getInstance();
+    this.config = config || {}; // Сохраняем локально
 
     if (config) {
       this.configManager.setConfig(config);
@@ -43,7 +44,7 @@ export class OTLPLazy {
   private async ensureInitialized(): Promise<void> {
     if (this.initialized) return;
 
-    const config = this.configManager.getConfig();
+    const config = { ...this.configManager.getConfig(), ...this.config };
     if (!config.enabled) return;
 
     try {
@@ -71,7 +72,6 @@ export class OTLPLazy {
 
       provider.register();
 
-      // ✅ ДОБАВЛЯЕМ АВТОИНСТРУМЕНТАЦИЮ
       if (config.enableAutoInstrumentation) {
         try {
           const { getWebAutoInstrumentations } = await import('@opentelemetry/auto-instrumentations-web');
