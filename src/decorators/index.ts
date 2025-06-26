@@ -1,13 +1,12 @@
 export {
-  lazyTrace,
-  lazyTraceOnError,
-  lazyTraceAdvanced
-} from './lazy-decorators.js';
+  trace,
+  traceOnError
+} from './trace.js';
 
-export type {
-  LazyTraceable,
-  LazyTraceOptions,
-  LazyTraceErrorOptions,
-  LazyTraceAdvancedOptions
-} from './types.js';
-
+export {
+  advancedTrace,
+  TraceHTTP,
+  TraceDatabase,
+  TraceAsync,
+  type AdvancedTraceOptions
+} from './advanced-decorators.js';
