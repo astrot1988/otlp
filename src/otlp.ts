@@ -54,7 +54,7 @@ export class OTLP {
       options: {
         serviceName: otelVars.OTEL_SERVICE_NAME || 'web-app',
         serviceVersion: otelVars.OTEL_SERVICE_VERSION || '1.0.0',
-        endpoint: otelVars.OTEL_EXPORTER_OTLP_ENDPOINT_FRONT,
+        endpoint: `${otelVars.OTEL_EXPORTER_OTLP_ENDPOINT_FRONT}/v1/traces`,
         resourceAttributes: {
           ...otelVars.OTEL_RESOURCE_ATTRIBUTES,
           ...otelVars  // Все OTEL_ переменные как переменные окружения
